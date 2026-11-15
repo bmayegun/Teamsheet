@@ -1,22 +1,11 @@
 package com.biz.teamsheet.model
 
-import jakarta.persistence.Entity
-import jakarta.persistence.GeneratedValue
-import jakarta.persistence.GenerationType
-import jakarta.persistence.Id
-import jakarta.persistence.Table
-
-@Entity
-@Table(name = "team")
-open class Team (
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    var id: Long,
-
-    var players: MutableList<Player> = mutableListOf(),
-){
-
-    fun getRating(): Int{
-        return players.sumOf { it.rating ?: 0 }
-    }
+data class Team(
+    val name: String,
+    val players: List<Player>,
+    val positionCoverage: Map<Position, Int>? = null,
+) {
+    val size: Int get() = players.size
+    val totalSkill: Int get() = players.sumOf { it.skillRating }
+    val averageSkill: Double get() = totalSkill.toDouble() / size
 }

@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    font-family: "Inter", system-ui, sans-serif;
+    color: #182a26;
+    background: #f3f6f3;
+    font-synthesis: none;
+  }
+
+  button { cursor: pointer; }
+  button:disabled { cursor: default; opacity: .55; }
+  :focus-visible { outline: 2px solid #298464; outline-offset: 3px; }
+}
+
+@layer components {
+  .page-width { @apply mx-auto w-full max-w-6xl px-5 sm:px-8; }
+  .masthead { @apply border-b border-[#315649] bg-[#153a2e] text-white; }
+  .brand { @apply flex h-16 items-center gap-3 text-xl font-extrabold tracking-tight; }
+  .brand-icon { @apply grid size-8 place-items-center rounded-lg bg-[#d9f2dd] text-[#153a2e]; }
+  .intro { @apply py-9 sm:py-12; }
+  .intro h1 { @apply text-4xl font-extrabold tracking-tight sm:text-5xl; }
+  .intro p { @apply mt-3 max-w-xl text-[#4c6259]; }
+  .workspace { @apply grid items-start gap-5 lg:grid-cols-[1.25fr_1fr]; }
+  .card { @apply min-w-0 rounded-2xl border border-[#dbe4dc] bg-white p-5 sm:p-6; }
+  .section-title { @apply flex flex-wrap items-center justify-between gap-2; }
+  h2 { @apply text-xl font-bold tracking-tight; }
+  h3 { @apply text-lg font-bold; }
+  .count { @apply rounded-full bg-[#eaf3eb] px-3 py-1 text-sm font-semibold text-[#315c4c]; }
+  .add-form { @apply mt-5 grid gap-2; }
+  label, legend { @apply text-sm font-semibold; }
+  textarea, select, input[type="number"], input:not([type]) {
+    @apply w-full rounded-lg border border-[#ccd9d0] bg-white px-3 py-2 text-sm font-normal;
+  }
+  textarea { @apply resize-y; }
+  .secondary, .primary { @apply rounded-lg px-4 py-2.5 text-sm font-bold; }
+  .secondary { @apply justify-self-start bg-[#eaf3eb] text-[#194435] hover:bg-[#d8ebdc]; }
+  .primary { @apply w-full bg-[#19543f] text-white hover:bg-[#113d2e]; }
+  .hint { @apply mt-2 text-sm font-normal text-[#4c6259]; }
+  .player-list { @apply mt-4 divide-y divide-[#e3ebe5] border-t border-[#e3ebe5]; }
+  .player { @apply py-3; }
+  .player-details { @apply grid grid-cols-[minmax(0,1fr)_minmax(0,.8fr)_2.25rem] items-center gap-2; }
+  .skill-rating { @apply grid min-w-0 grid-cols-5 rounded-lg border border-[#ccd9d0] bg-[#eff3ef]; }
+  .skill-segment { @apply relative grid min-h-10 cursor-pointer place-items-center text-[#42584e]; }
+  .skill-segment:first-of-type { @apply rounded-l-[7px]; }
+  .skill-segment:last-of-type { @apply rounded-r-[7px]; }
+  .skill-segment[data-filled="true"] { @apply bg-[#19543f] text-white; }
+  .skill-segment:hover { @apply underline underline-offset-2; }
+  .skill-segment:has(:focus-visible) { @apply z-10 outline-2 outline-offset-2 outline-[#298464]; }
+  .remove { @apply rounded-lg text-2xl text-[#5a6a63] hover:bg-[#f8e9e6] hover:text-[#a33229]; }
+  .position-buttons { @apply mt-2 flex flex-wrap gap-2; }
+  .position-button, .team-coverage .position-buttons > span {
+    @apply flex min-h-8 items-center gap-1 rounded-md bg-[#eff3ef] px-2 text-xs font-semibold text-[#42584e];
+  }
+  .position-button[aria-pressed="true"] { @apply bg-[#d4edda] text-[#164633]; }
+  .position-button span { @apply rounded bg-[#19543f] px-1 text-white; }
+  .settings { @apply grid gap-5; }
+  .settings-fields { @apply grid grid-cols-2 gap-3; }
+  .settings-fields label, .target-fields label { @apply grid gap-1.5; }
+  .target-fields { @apply mt-2 grid grid-cols-4 gap-2; }
+  .target-fields input { @apply min-w-0 px-2; }
+  legend .hint { @apply ml-2; }
+  .mode-list { @apply mt-2 grid gap-2; }
+  .mode { @apply flex cursor-pointer items-start gap-3 rounded-lg border border-[#dbe4dc] p-3; }
+  .mode:has(:checked) { @apply border-[#539173] bg-[#f1f8f2]; }
+  .mode input { @apply mt-1 accent-[#19543f]; }
+  .mode small { @apply mt-0.5 block text-sm font-normal text-[#4c6259]; }
+  .error { @apply rounded-lg bg-[#fff0ed] p-2 text-sm text-[#94251c]; }
+  .results { @apply py-8; }
+  .results-grid { @apply mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3; }
+  .team-card { @apply border-t-4 border-t-[#378065]; }
+  .team-stats { @apply my-4 grid grid-cols-2 gap-2 rounded-lg bg-[#eff5ef] p-3; }
+  .team-stats dt { @apply text-sm text-[#4c6259]; }
+  .team-stats dd { @apply text-xl font-bold tabular-nums; }
+  .team-players { @apply divide-y divide-[#e5ece6]; }
+  .team-players li { @apply flex justify-between gap-3 py-2 text-sm; }
+  .team-players li span:first-child { @apply break-all; }
+  .player-score { @apply font-semibold tabular-nums text-[#315c4c]; }
+  .share-draw { @apply mt-5; }
+  .share-draw summary { @apply cursor-pointer font-bold; }
+  .share-controls { @apply mt-4 flex flex-wrap items-center gap-x-5 gap-y-3; }
+  .share-controls label { @apply inline-flex cursor-pointer items-center gap-2; }
+  .share-controls input { @apply size-4 accent-[#19543f]; }
+  .share-draw .team-card { @apply shadow-none; }
+  .team-coverage { @apply mt-4; }
+  .team-coverage h4 { @apply text-sm font-semibold; }
+}
