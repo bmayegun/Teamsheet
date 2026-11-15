@@ -38,3 +38,10 @@ kotlin {
 tasks.withType<Test> {
     useJUnitPlatform()
 }
+
+tasks.bootJar {
+    archiveFileName.set("teamsheet.jar")
+    from(layout.projectDirectory.dir("frontend/dist")) {
+        into("BOOT-INF/classes/static")
+    }
+}

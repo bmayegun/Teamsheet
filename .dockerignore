@@ -1,0 +1,8 @@
+.git
+.gradle
+.idea
+.kotlin
+build
+frontend/.vite
+frontend/dist
+frontend/node_modules

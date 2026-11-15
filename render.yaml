@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: teamsheet
+    runtime: docker
+    plan: free
+    healthCheckPath: /
