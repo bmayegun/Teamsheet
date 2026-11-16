@@ -2,12 +2,15 @@
 
 @layer base {
   :root {
-    font-family: "Inter", system-ui, sans-serif;
+    font-family: system-ui, sans-serif;
     color: #182a26;
     background: #f3f6f3;
     font-synthesis: none;
+    accent-color: #19543f;
+    scroll-padding-block-end: 10rem;
   }
 
+  ::selection { background: #d4edda; color: #164633; }
   button { cursor: pointer; }
   button:disabled { cursor: default; opacity: .55; }
   :focus-visible { outline: 2px solid #298464; outline-offset: 3px; }
@@ -29,25 +32,76 @@
   .count { @apply rounded-full bg-[#eaf3eb] px-3 py-1 text-sm font-semibold text-[#315c4c]; }
   .add-form { @apply mt-5 grid gap-2; }
   label, legend { @apply text-sm font-semibold; }
-  textarea, select, input[type="number"], input:not([type]) {
-    @apply w-full rounded-lg border border-[#ccd9d0] bg-white px-3 py-2 text-sm font-normal;
+  textarea, select, input[type="number"], input[type="search"], input:not([type]) {
+    @apply w-full rounded-lg border border-[#ccd9d0] bg-white px-3 py-2 text-base font-normal sm:text-sm;
   }
   textarea { @apply resize-y; }
-  .secondary, .primary { @apply rounded-lg px-4 py-2.5 text-sm font-bold; }
+  .secondary, .primary { @apply min-h-11 rounded-lg px-4 py-2.5 text-sm font-bold; }
   .secondary { @apply justify-self-start bg-[#eaf3eb] text-[#194435] hover:bg-[#d8ebdc]; }
   .primary { @apply w-full bg-[#19543f] text-white hover:bg-[#113d2e]; }
   .hint { @apply mt-2 text-sm font-normal text-[#4c6259]; }
   .player-list { @apply mt-4 divide-y divide-[#e3ebe5] border-t border-[#e3ebe5]; }
   .player { @apply py-3; }
-  .player-details { @apply grid grid-cols-[minmax(0,1fr)_minmax(0,.8fr)_2.25rem] items-center gap-2; }
-  .skill-rating { @apply grid min-w-0 grid-cols-5 rounded-lg border border-[#ccd9d0] bg-[#eff3ef]; }
-  .skill-segment { @apply relative grid min-h-10 cursor-pointer place-items-center text-[#42584e]; }
+  .account { @apply ml-auto text-sm font-semibold tracking-normal; }
+  .account a, .account button { @apply rounded-lg bg-[#d9f2dd] px-3 py-2 text-[#153a2e]; }
+  .match-workspace { @apply mt-5 sm:mt-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]; }
+  .match-workspace h1 { @apply text-2xl font-bold tracking-tight sm:text-3xl; }
+  .match-workspace .settings { @apply lg:sticky lg:top-5; }
+  .saved-roster-fields { @apply grid min-w-0 gap-4; }
+  .match-tools { @apply grid gap-1; }
+  .match-tools details, .roster-management { @apply border-t border-[#e3ebe5]; }
+  .match-tools summary, .roster-management summary, .target-settings summary, .share-draw summary {
+    @apply min-h-11 cursor-pointer py-3 text-sm font-semibold text-[#194435];
+  }
+  .match-tools details[open] { @apply pb-4; }
+  .inline-form { @apply mt-1 items-end sm:grid-cols-[minmax(0,1fr)_auto]; }
+  .attendance-filters { @apply flex flex-wrap items-end gap-x-4 gap-y-1; }
+  .attendance-filters > label:first-child { @apply grid min-w-0 flex-1 basis-40 gap-1; }
+  .attending-filter { @apply flex min-h-11 cursor-pointer items-center gap-2; }
+  .attendance-list, .attendance-review { @apply divide-y divide-[#e3ebe5] border-y border-[#e3ebe5]; }
+  .attendance-row { @apply flex min-h-12 cursor-pointer items-center gap-3 px-2 py-2.5; }
+  .attendance-row:hover, .attendance-row[data-selected="true"] { @apply bg-[#f1f8f2]; }
+  .attendance-row:has(:focus-visible) { @apply outline-2 -outline-offset-2 outline-[#298464]; }
+  .attendance-row input { @apply size-5 shrink-0; }
+  .attendance-row > span:nth-child(2), .player-disclosure summary > span:last-child { @apply min-w-0 wrap-anywhere; }
+  .match-number { @apply inline-grid min-w-6 shrink-0 place-items-center rounded-md bg-[#eaf3eb] px-1.5 py-0.5 text-sm font-semibold text-[#315c4c] tabular-nums; }
+  .attendance-row .match-number { @apply ml-auto; }
+  .match-preview-total { @apply mt-4 grid gap-1 text-sm text-[#315c4c]; }
+  .attendance-review { @apply my-3 max-h-72 overflow-y-auto; }
+  .attendance-review li { @apply grid items-center gap-2 px-2 py-2 text-sm sm:grid-cols-2; }
+  .attendance-review li > strong { @apply min-w-0 wrap-anywhere; }
+  .attendance-review label { @apply grid min-w-0 gap-1; }
+  .guest-list h2 { @apply text-base; }
+  .guest-list .player-list { @apply mt-1; }
+  .guest-list .player, .roster-management .player { @apply py-0; }
+  .guest-with-remove { @apply relative; }
+  .guest-with-remove > details > summary { @apply pr-20; }
+  .guest-with-remove > .remove { @apply absolute right-0 top-0; }
+  .player-disclosure summary { @apply flex min-h-11 cursor-pointer items-center gap-2 py-2 text-sm font-semibold; }
+  .player-disclosure summary::before { content: ''; @apply size-2 shrink-0 -rotate-45 border-r-2 border-b-2 border-[#315c4c]; }
+  .player-disclosure[open] summary::before { @apply rotate-45; }
+  .player-disclosure[open] { @apply pb-3; }
+  .text-button { @apply min-h-11 text-left text-sm font-semibold text-[#194435] underline decoration-[#91ad9c] underline-offset-4 hover:decoration-current; }
+  .match-reset:empty { display: none; }
+  .undo-status { @apply flex flex-wrap items-center gap-x-3 text-sm text-[#315c4c]; }
+  .roster-management { @apply mt-4; }
+  .roster-management summary .count { @apply ml-2; }
+  .player-details { @apply grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2; }
+  .player-details > .skill-rating { @apply col-span-2 row-start-2; }
+  .bulk-preview-row { @apply flex flex-wrap items-start justify-between gap-x-3 gap-y-1 py-2; }
+  .bulk-preview-row > label { @apply flex min-h-11 min-w-0 flex-[1_1_4rem] cursor-pointer items-center gap-2; }
+  .bulk-preview-row > label input { @apply size-4 shrink-0; }
+  .bulk-preview-row > label span { @apply min-w-0 wrap-anywhere; }
+  .bulk-preview-controls { @apply w-56 max-w-full; }
+  .bulk-preview-controls .position-buttons { @apply gap-1; }
+  .skill-rating { @apply grid w-full max-w-xs min-w-0 grid-cols-5 rounded-lg border border-[#ccd9d0] bg-[#eff3ef]; }
+  .skill-segment { @apply relative grid min-h-11 cursor-pointer place-items-center text-[#42584e]; }
   .skill-segment:first-of-type { @apply rounded-l-[7px]; }
   .skill-segment:last-of-type { @apply rounded-r-[7px]; }
   .skill-segment[data-filled="true"] { @apply bg-[#19543f] text-white; }
   .skill-segment:hover { @apply underline underline-offset-2; }
   .skill-segment:has(:focus-visible) { @apply z-10 outline-2 outline-offset-2 outline-[#298464]; }
-  .remove { @apply rounded-lg text-2xl text-[#5a6a63] hover:bg-[#f8e9e6] hover:text-[#a33229]; }
+  .remove { @apply min-h-11 rounded-lg px-2 text-sm font-semibold text-[#5a6a63] hover:bg-[#f8e9e6] hover:text-[#a33229]; }
   .position-buttons { @apply mt-2 flex flex-wrap gap-2; }
   .position-button, .team-coverage .position-buttons > span {
     @apply flex min-h-8 items-center gap-1 rounded-md bg-[#eff3ef] px-2 text-xs font-semibold text-[#42584e];
@@ -59,29 +113,45 @@
   .settings-fields label, .target-fields label { @apply grid gap-1.5; }
   .target-fields { @apply mt-2 grid grid-cols-4 gap-2; }
   .target-fields input { @apply min-w-0 px-2; }
-  legend .hint { @apply ml-2; }
-  .mode-list { @apply mt-2 grid gap-2; }
-  .mode { @apply flex cursor-pointer items-start gap-3 rounded-lg border border-[#dbe4dc] p-3; }
-  .mode:has(:checked) { @apply border-[#539173] bg-[#f1f8f2]; }
-  .mode input { @apply mt-1 accent-[#19543f]; }
-  .mode small { @apply mt-0.5 block text-sm font-normal text-[#4c6259]; }
+  .position-button:where(button) { @apply min-h-11 min-w-11 justify-center; }
+  .mode-field { @apply grid gap-1.5; }
+  .mode-field .hint, .roster-save .hint { @apply mt-0; }
+  .target-settings { @apply border-y border-[#e3ebe5]; }
+  .target-settings[open] { @apply pb-3; }
+  .draw-actions { @apply grid gap-2; }
+  .draw-buttons { @apply flex items-stretch gap-2; }
+  .draw-buttons .secondary { @apply shrink-0; }
+  .match-action-summary { @apply flex items-center justify-between gap-2; }
+  .settings-link { @apply hidden min-h-0; }
+  .match-action-count { @apply text-sm font-semibold text-[#315c4c] tabular-nums; }
+  .match-action-state { @apply hidden text-sm text-[#4c6259]; }
+  @media (width < 64rem) {
+    .settings-link { @apply inline; }
+    .match-action-state { @apply block; }
+    .has-match-actions { padding-bottom: calc(12rem + env(safe-area-inset-bottom)); }
+    .mobile-draw-actions {
+      @apply fixed inset-x-0 bottom-0 z-10 border-t border-[#dbe4dc] bg-white px-5 pt-3;
+      padding-bottom: calc(.75rem + env(safe-area-inset-bottom));
+    }
+  }
   .error { @apply rounded-lg bg-[#fff0ed] p-2 text-sm text-[#94251c]; }
   .results { @apply py-8; }
   .results-grid { @apply mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3; }
-  .team-card { @apply border-t-4 border-t-[#378065]; }
+  .team-card h3 { @apply text-[#164633]; }
   .team-stats { @apply my-4 grid grid-cols-2 gap-2 rounded-lg bg-[#eff5ef] p-3; }
   .team-stats dt { @apply text-sm text-[#4c6259]; }
   .team-stats dd { @apply text-xl font-bold tabular-nums; }
   .team-players { @apply divide-y divide-[#e5ece6]; }
   .team-players li { @apply flex justify-between gap-3 py-2 text-sm; }
-  .team-players li span:first-child { @apply break-all; }
+  .team-players li span:first-child { @apply wrap-anywhere; }
   .player-score { @apply font-semibold tabular-nums text-[#315c4c]; }
-  .share-draw { @apply mt-5; }
-  .share-draw summary { @apply cursor-pointer font-bold; }
-  .share-controls { @apply mt-4 flex flex-wrap items-center gap-x-5 gap-y-3; }
-  .share-controls label { @apply inline-flex cursor-pointer items-center gap-2; }
-  .share-controls input { @apply size-4 accent-[#19543f]; }
-  .share-draw .team-card { @apply shadow-none; }
+  .results-heading .copy-draw { @apply w-auto; }
+  .results-controls { @apply mt-2 flex flex-wrap items-start gap-x-5 border-b border-[#e3ebe5]; }
+  .organiser-details { @apply flex min-h-11 cursor-pointer items-center gap-2; }
+  .share-draw[open] { @apply grow; }
+  .share-controls { @apply flex flex-wrap items-center gap-x-5 gap-y-1 pb-2; }
+  .share-controls label { @apply inline-flex min-h-11 cursor-pointer items-center gap-2; }
+  .organiser-details input, .share-controls input { @apply size-4 accent-[#19543f]; }
   .team-coverage { @apply mt-4; }
   .team-coverage h4 { @apply text-sm font-semibold; }
 }

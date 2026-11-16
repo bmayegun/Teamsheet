@@ -9,6 +9,7 @@ import com.biz.teamsheet.model.Position.GK
 import com.biz.teamsheet.model.Position.MID
 import com.biz.teamsheet.model.TeamRequest
 import com.biz.teamsheet.service.TeamService
+import com.biz.teamsheet.service.spreadRatingExtremes
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -100,6 +101,56 @@ class TeamServiceTests {
                 assertTrue(teams.maxOf { it.totalSkill } - teams.minOf { it.totalSkill } <= 1, "$mode seed $seed")
             }
             assertEquals(5, highestRatedTeamNames.size, "$mode should use every team name for the highest-rated player")
+        }
+    }
+
+    @Test
+    fun `two-for-two pass fixes a clustered pair of equal-skill teams`() {
+        val ratings = listOf(5, 4, 3, 3, 1, 1, 2, 3, 3, 3, 3, 3)
+        val players = ratings.mapIndexed { index, rating -> Player("$index", "Player $index", rating, positions = listOf(DEF)) }
+        val rosters = players.chunked(6).map { it.toMutableList() }
+
+        spreadRatingExtremes(rosters, sixAside.positionTargets)
+
+        assertEquals(listOf(17, 17), rosters.map { team -> team.sumOf { it.skillRating } })
+        assertEquals(listOf(6, 6), rosters.map { it.size })
+        assertEquals(players.toSet(), rosters.flatten().toSet())
+        assertTrue(rosters.all { team -> team.count { it.skillRating == 1 } == 1 })
+        assertTrue(rosters.all { team -> team.count { it.skillRating >= 4 } == 1 })
+    }
+
+    @Test
+    fun `two-for-two pass leaves teams intact when spreading the extremes would lose position coverage`() {
+        val ratings = listOf(5, 4, 3, 3, 1, 1, 2, 3, 3, 3, 3, 3)
+        val players = ratings.mapIndexed { index, rating ->
+            val position = when (index) {
+                0 -> GK
+                1 -> ATT
+                else -> DEF
+            }
+            Player("$index", "Player $index", rating, positions = listOf(position))
+        }
+        val original = players.chunked(6)
+        val rosters = original.map { it.toMutableList() }
+
+        spreadRatingExtremes(rosters, sixAside.positionTargets)
+
+        assertEquals(original, rosters)
+    }
+
+    @Test
+    fun `equal-total pair swaps separate the rating extremes in a five-team draw`() {
+        val ratings = List(2) { 1 } + List(4) { 2 } + List(21) { 3 } + List(2) { 4 } + listOf(5)
+        val players = ratings.mapIndexed { index, rating ->
+            Player("$index", "Player $index", rating, positions = listOf(DEF))
+        }
+        for (seed in 1L..20L) {
+            val teams = service.generate(TeamRequest(players, 5, BalancingMode.SKILL_AND_POSITION, sixAside, seed)).teams
+            assertEquals(listOf(17, 17, 17, 17, 18), teams.map { it.totalSkill }.sorted(), "seed $seed")
+            assertEquals(players.toSet(), teams.flatMap { it.players }.toSet(), "seed $seed")
+            assertTrue(teams.all { it.size == 6 && it.positionCoverage?.get(DEF) == 2 }, "seed $seed")
+            assertTrue(teams.all { team -> team.players.count { it.skillRating == 1 } <= 1 }, "low ratings, seed $seed")
+            assertTrue(teams.all { team -> team.players.count { it.skillRating >= 4 } <= 1 }, "high ratings, seed $seed")
         }
     }
 

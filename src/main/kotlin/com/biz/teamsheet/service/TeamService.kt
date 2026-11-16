@@ -53,6 +53,7 @@ class TeamService {
                 totals[team] += player.skillRating
             }
             improve(rosters, totals, targets, balancePositions, format.playersPerTeam, average)
+            spreadRatingExtremes(rosters, targets.takeIf { balancePositions })
         }
 
         // Assign team names after balancing so placement order cannot favour a team number.

@@ -1,7 +1,8 @@
 import { useRef, useState, type FormEvent } from 'react'
 import PlayerEditor from './PlayerEditor'
-import TeamResults from './TeamResults'
 import ShareDraw from './ShareDraw'
+import SavedPlayers from './SavedPlayers'
+import { useSavedRoster } from './useSavedRoster'
 import { generateTeams } from './teamService'
 import { positions, positionNames, presets, type Mode, type Player, type Targets, type Team } from './types'
 
@@ -12,7 +13,15 @@ const modes: { value: Mode; name: string; description: string }[] = [
 ]
 
 export default function App() {
-  const [players, setPlayers] = useState<Player[]>([])
+  const [players, setPlayers] = useState<Player[]>(() => {
+    try { return JSON.parse(sessionStorage.getItem('teamsheet-guest-roster') ?? '[]') }
+    catch { return [] }
+  })
+  const roster = useSavedRoster()
+  const matchPlayers = roster.draft ? [
+    ...roster.draft.players.filter(player => roster.draft?.attendingIds.includes(player.id)),
+    ...roster.draft.guests,
+  ] : players
   const [names, setNames] = useState('')
   const [format, setFormat] = useState('5-a-side')
   const [teamSize, setTeamSize] = useState(5)
@@ -26,6 +35,12 @@ export default function App() {
   const activeRequest = useRef<AbortController | null>(null)
   const resultsHeading = useRef<HTMLHeadingElement>(null)
   const targetTotal = Object.values(targets).reduce((sum, value) => sum + value, 0)
+  const positionMode = mode === 'SKILL_AND_POSITION'
+  const invalidTarget = Object.values(targets).some(value => !Number.isInteger(value) || value < 0)
+  const targetMismatch = positionMode && (invalidTarget || targetTotal !== teamSize)
+  const targetMessage = invalidTarget ? 'Use whole numbers of zero or more for position targets.' :
+    `Position targets add up to ${targetTotal}. Set them to ${teamSize} for this format.`
+  const shortRoster = matchPlayers.length < teamCount || !matchPlayers.length
 
   function clearResult() {
     activeRequest.current?.abort()
@@ -61,32 +76,34 @@ export default function App() {
 
   async function generate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (pending) return
+    if (pending || (roster.session?.name && (!roster.draft || roster.busy))) return
     setError('')
-    if (players.length < teamCount || !players.length) {
+    if (shortRoster) {
       setError('Add enough players for every team to have at least one.')
       return
     }
-    if (players.some(player => !player.name.trim())) {
+    if (matchPlayers.some(player => !player.name.trim())) {
       setError('Enter a name for every player.')
       return
     }
-    if (targetTotal !== teamSize) {
-      setError('Position targets must add up to the selected team size.')
+    if (targetMismatch) {
+      setError(targetMessage)
       return
     }
+    const drawTargets = positionMode ? targets : presets[format] ?? { GK: 0, DEF: 0, MID: 0, ATT: teamSize }
     const controller = new AbortController()
+    setResult(undefined)
     activeRequest.current = controller
     setPending(true)
     try {
       const teams = await generateTeams({
-        players,
+        players: matchPlayers,
         numberOfTeams: teamCount,
         balancingMode: mode,
-        gameFormat: { name: format, playersPerTeam: teamSize, positionTargets: targets },
+        gameFormat: { name: format, playersPerTeam: teamSize, positionTargets: drawTargets },
       }, controller.signal)
       if (controller.signal.aborted) return
-      setResult({ teams, targets })
+      setResult({ teams, targets: drawTargets })
       requestAnimationFrame(() => resultsHeading.current?.focus())
     } catch (cause) {
       if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Unable to generate teams.')
@@ -100,15 +117,43 @@ export default function App() {
 
   return <>
     <header className="masthead">
-      <div className="page-width brand"><span className="brand-icon" aria-hidden="true">▥</span>TeamSheet</div>
+      <div className="page-width brand">
+        <span className="brand-icon" aria-hidden="true">▥</span>TeamSheet
+        {roster.session?.enabled && <div className="account">
+          {roster.session.name ? <form action="/logout" method="post">
+            <input type="hidden" name="_csrf" value={roster.session.csrfToken ?? ''} />
+            <button type="submit">Sign out</button>
+          </form> : <a href="/oauth2/authorization/google" onClick={() => {
+            try { sessionStorage.setItem('teamsheet-guest-roster', JSON.stringify(players)) }
+            catch { /* Storage can be disabled in the browser. */ }
+          }}>Sign in with Google</a>}
+        </div>}
+      </div>
     </header>
-    <main className="page-width">
-      <div className="intro">
+    <main className={roster.draft && !result ? "page-width has-match-actions" : "page-width"}>
+      {!roster.session?.name && <div className="intro">
         <h1>Build balanced teams.</h1>
         <p>Add your players, choose a game format, and generate teams for your next match.</p>
-      </div>
-      <div className="workspace">
+      </div>}
+      {new URLSearchParams(location.search).has('signInFailed') && <p className="error" role="alert">Google sign-in failed. Try again.</p>}
+      {!roster.session && roster.message && <p className="error" role="alert">{roster.message}</p>}
+      <div className={roster.session?.name ? "workspace match-workspace" : "workspace"}>
         <section className="card" aria-labelledby="roster-heading">
+          {roster.draft ? <SavedPlayers draft={roster.draft} busy={roster.busy} existingPlayers={players}
+            onChange={draft => { clearResult(); roster.setDraft(draft) }}
+            onAdopt={() => {
+              const draft = roster.draft!
+              const existing = new Set(draft.players.map(player => player.id))
+              const additions = players.filter(player => !existing.has(player.id)).slice(0, 1000 - draft.players.length)
+              if (additions.length) {
+                clearResult()
+                roster.setDraft({ ...draft, players: [...draft.players, ...additions] })
+              }
+            }} /> : roster.session?.name ? <>
+            <h1 id="roster-heading">Playing this match</h1>
+            <p role="status">{roster.message || 'Loading roster…'}</p>
+            {!roster.busy && roster.message && <button className="secondary" type="button" onClick={roster.loadRoster}>Retry</button>}
+          </> : <>
           <div className="section-title"><h2 id="roster-heading">Player roster</h2><span className="count">{players.length} players</span></div>
           <form onSubmit={addPlayers} className="add-form">
             <label htmlFor="names">Player names</label>
@@ -125,9 +170,10 @@ export default function App() {
                 onRemove={() => { clearResult(); setEntryError(''); setPlayers(players.filter(item => item.id !== player.id)) }} />)}
             </ul>
           </>}
+          </>}
         </section>
         <form className="card settings" onSubmit={generate} aria-labelledby="settings-heading">
-          <h2 id="settings-heading">Game settings</h2>
+          <h2 id="settings-heading" tabIndex={-1}>Game settings</h2>
           <div className="settings-fields">
             <label>Game format
               <select value={format} onChange={event => changeFormat(event.target.value)}>
@@ -147,37 +193,63 @@ export default function App() {
               }} />
             </label>}
           </div>
-          <fieldset>
-            <legend>Position targets <span className="hint">{targetTotal}/{teamSize}</span></legend>
-            <div className="target-fields">
-              {positions.map(position => <label key={position} title={positionNames[position]}>{position}
-                <input required aria-label={positionNames[position] + ' target'} type="number" min={0} max={100} value={targets[position]}
-                  onChange={event => { clearResult(); setTargets({ ...targets, [position]: Number(event.target.value) }) }} />
-              </label>)}
+          <label className="mode-field">Balancing mode
+            <select value={mode} aria-describedby="mode-description" onChange={event => {
+              clearResult()
+              setMode(event.target.value as Mode)
+            }}>
+              {modes.map(option => <option key={option.value} value={option.value}>{option.name}</option>)}
+            </select>
+            <span className="hint" id="mode-description">{modes.find(option => option.value === mode)?.description}</span>
+          </label>
+          {positionMode && <div>
+            <details className="target-settings">
+              <summary>Edit position targets{targetMismatch && ' (check total)'}</summary>
+              <fieldset>
+                <legend className="sr-only">Position targets</legend>
+                <div className="target-fields">
+                  {positions.map(position => <label key={position} title={positionNames[position]}>{position}
+                    <input aria-label={positionNames[position] + ' target'} aria-describedby="position-total"
+                      type="number" value={targets[position]}
+                      onChange={event => { clearResult(); setTargets({ ...targets, [position]: Number(event.target.value) }) }} />
+                  </label>)}
+                </div>
+                <p className="hint">Targets guide position coverage. Everyone plays, including extras.</p>
+              </fieldset>
+            </details>
+            <p className={targetMismatch ? 'error mt-2' : 'sr-only'} id="position-total" aria-live="polite">
+              {targetMismatch ? targetMessage : `${targetTotal} of ${teamSize} positions assigned.`}
+            </p>
+          </div>}
+          {roster.draft && <div className="roster-save" aria-label="Roster sync">
+            <p className="hint" role="status">
+              {roster.message || (roster.busy ? 'Saving…' : roster.dirty ? 'Unsaved changes' : 'Saved to your account')}
+            </p>
+            {roster.conflict && <button type="button" className="text-button" disabled={roster.busy}
+              onClick={() => { clearResult(); void roster.loadRoster() }}>Discard local edits and load latest</button>}
+          </div>}
+          <div className={roster.draft && !result ? 'draw-actions mobile-draw-actions' : 'draw-actions'}>
+            {roster.draft && !result && <div className="match-action-summary">
+              <p className="match-action-count">
+                {matchPlayers.length} playing <span aria-hidden="true">·</span> {teamCount || 0} {teamCount === 1 ? 'team' : 'teams'}
+              </p>
+              <a className="settings-link text-button" href="#settings-heading">Game settings</a>
+            </div>}
+            {error && <p className="error" role="alert">{error}</p>}
+            <div className="draw-buttons">
+              {roster.draft && roster.dirty && <button type="button" className="secondary"
+                disabled={roster.busy || roster.conflict} onClick={roster.saveRoster}>Save changes</button>}
+              <button className="primary" type="submit" disabled={pending || (Boolean(roster.session?.name) && (!roster.draft || roster.busy))}>
+                {pending ? 'Generating…' : result ? 'Regenerate teams' : 'Generate teams'}
+              </button>
             </div>
-            <p className="hint">Targets guide position coverage. Everyone plays, including extras.</p>
-          </fieldset>
-          <fieldset>
-            <legend>Generation mode</legend>
-            <div className="mode-list">
-              {modes.map(option => <label className="mode" key={option.value}>
-                <input type="radio" name="mode" value={option.value} checked={mode === option.value}
-                  onChange={() => { clearResult(); setMode(option.value) }} />
-                <span><strong>{option.name}</strong><small>{option.description}</small></span>
-              </label>)}
-            </div>
-          </fieldset>
-          {error && <p className="error" role="alert">{error}</p>}
-          <button className="primary" type="submit" disabled={pending}>
-            {pending ? 'Generating…' : result ? 'Regenerate teams' : 'Generate teams'}
-          </button>
+            {roster.draft && roster.dirty && !error && !result && <p className="match-action-state">
+              {roster.message || (roster.busy ? 'Saving to your account…' : 'Unsaved changes')}
+            </p>}
+          </div>
         </form>
       </div>
-      {result && <section className="results" aria-labelledby="results-heading">
-        <h2 id="results-heading" tabIndex={-1} ref={resultsHeading}>Generated teams</h2>
-        <TeamResults teams={result.teams} targets={result.targets} />
-        <ShareDraw teams={result.teams} targets={result.targets} />
-      </section>}
+      {result && <ShareDraw teams={result.teams} targets={result.targets} headingRef={resultsHeading} />}
     </main>
   </>
 }

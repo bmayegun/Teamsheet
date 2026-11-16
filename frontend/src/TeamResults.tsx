@@ -5,7 +5,7 @@ export default function TeamResults({
 }: { teams: Team[]; targets: Targets; hideSkill?: boolean; hidePositions?: boolean }) {
   return <div className="results-grid">
     {teams.map(team => <article className="card team-card" key={team.name}>
-      <div className="section-title"><h3>{team.name}</h3><span className="count">{team.size} players</span></div>
+      <div className="section-title"><h3>{team.name}</h3><span className="count">{team.size} {team.size === 1 ? 'player' : 'players'}</span></div>
       {!hideSkill && <dl className="team-stats">
         <div><dt>Average skill</dt><dd>{team.averageSkill.toFixed(2)}</dd></div>
         <div><dt>Total skill</dt><dd>{team.totalSkill}</dd></div>
