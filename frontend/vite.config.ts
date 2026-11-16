@@ -2,7 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-const proxy = { '/api': 'http://localhost:8080' }
+const backend = 'http://localhost:8080'
+const proxy = { '/api': backend, '/oauth2': backend, '/login': backend, '/logout': backend }
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
