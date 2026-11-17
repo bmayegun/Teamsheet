@@ -32,7 +32,7 @@
   .count { @apply rounded-full bg-[#eaf3eb] px-3 py-1 text-sm font-semibold text-[#315c4c]; }
   .add-form { @apply mt-5 grid gap-2; }
   label, legend { @apply text-sm font-semibold; }
-  textarea, select, input[type="number"], input[type="search"], input:not([type]) {
+  textarea, select, input[type="number"], input[type="search"], input[type="email"], input:not([type]) {
     @apply w-full rounded-lg border border-[#ccd9d0] bg-white px-3 py-2 text-base font-normal sm:text-sm;
   }
   textarea { @apply resize-y; }

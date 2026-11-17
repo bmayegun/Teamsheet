@@ -8,7 +8,7 @@ export interface RosterDraft {
 }
 
 interface SavedRoster { revision: number; draft: RosterDraft }
-interface Session { enabled: boolean; name: string | null; csrfToken: string | null }
+interface Session { enabled: boolean; name: string | null; csrfToken: string | null; emailSignInEnabled?: boolean; canLinkEmail?: boolean }
 
 export function useSavedRoster() {
   const [session, setSession] = useState<Session>()

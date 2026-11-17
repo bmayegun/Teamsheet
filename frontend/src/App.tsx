@@ -1,3 +1,4 @@
+import EmailSignIn from './EmailSignIn'
 import { useRef, useState, type FormEvent } from 'react'
 import PlayerEditor from './PlayerEditor'
 import ShareDraw from './ShareDraw'
@@ -18,6 +19,7 @@ export default function App() {
     catch { return [] }
   })
   const roster = useSavedRoster()
+  const [signInOpen, setSignInOpen] = useState(false)
   const matchPlayers = roster.draft ? [
     ...roster.draft.players.filter(player => roster.draft?.attendingIds.includes(player.id)),
     ...roster.draft.guests,
@@ -115,6 +117,13 @@ export default function App() {
     }
   }
 
+  function rememberGuestRoster() {
+    try { sessionStorage.setItem('teamsheet-guest-roster', JSON.stringify(players)) }
+    catch { /* Storage can be disabled in the browser. */ }
+  }
+
+  const emailCsrf = roster.session?.emailSignInEnabled ? roster.session.csrfToken : null
+
   return <>
     <header className="masthead">
       <div className="page-width brand">
@@ -123,10 +132,9 @@ export default function App() {
           {roster.session.name ? <form action="/logout" method="post">
             <input type="hidden" name="_csrf" value={roster.session.csrfToken ?? ''} />
             <button type="submit">Sign out</button>
-          </form> : <a href="/oauth2/authorization/google" onClick={() => {
-            try { sessionStorage.setItem('teamsheet-guest-roster', JSON.stringify(players)) }
-            catch { /* Storage can be disabled in the browser. */ }
-          }}>Sign in with Google</a>}
+          </form> : emailCsrf ? <button type="button" aria-expanded={signInOpen} aria-controls="sign-in-panel"
+            onClick={() => setSignInOpen(open => !open)}>Sign in</button> :
+            <a href="/oauth2/authorization/google" onClick={rememberGuestRoster}>Sign in with Google</a>}
         </div>}
       </div>
     </header>
@@ -135,6 +143,14 @@ export default function App() {
         <h1>Build balanced teams.</h1>
         <p>Add your players, choose a game format, and generate teams for your next match.</p>
       </div>}
+      {emailCsrf && !roster.session?.name && <section className="card mb-5 max-w-lg" id="sign-in-panel" hidden={!signInOpen}>
+        {signInOpen && <>
+          <h2>Sign in to TeamSheet</h2>
+          <a className="secondary mt-3 inline-flex items-center" href="/oauth2/authorization/google"
+            onClick={rememberGuestRoster}>Sign in with Google</a>
+          <EmailSignIn csrfToken={emailCsrf} onSignedIn={() => { rememberGuestRoster(); location.assign('/') }} />
+        </>}
+      </section>}
       {new URLSearchParams(location.search).has('signInFailed') && <p className="error" role="alert">Google sign-in failed. Try again.</p>}
       {!roster.session && roster.message && <p className="error" role="alert">{roster.message}</p>}
       <div className={roster.session?.name ? "workspace match-workspace" : "workspace"}>
@@ -249,6 +265,11 @@ export default function App() {
           </div>
         </form>
       </div>
+      {emailCsrf && roster.session?.canLinkEmail && <details className="card my-5 max-w-lg">
+        <summary className="text-button cursor-pointer py-3">Link email sign-in</summary>
+        <p className="hint">Verify an email address to open this roster with an email code.</p>
+        <EmailSignIn csrfToken={emailCsrf} linking />
+      </details>}
       {result && <ShareDraw teams={result.teams} targets={result.targets} headingRef={resultsHeading} />}
     </main>
   </>
