@@ -45,3 +45,4 @@ out/
 /frontend/.vite/
 
 ./.impeccable
+/.env

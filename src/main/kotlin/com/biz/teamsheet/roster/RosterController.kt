@@ -1,5 +1,7 @@
 package com.biz.teamsheet.roster
 
+import com.biz.teamsheet.auth.EmailSignIn
+import com.biz.teamsheet.auth.rosterAccount
 import com.biz.teamsheet.service.TeamService
 import org.springframework.context.annotation.Profile
 import org.springframework.http.CacheControl
@@ -14,7 +16,13 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
 
-data class RosterSession(val enabled: Boolean, val name: String?, val csrfToken: String?)
+data class RosterSession(
+    val enabled: Boolean,
+    val name: String?,
+    val csrfToken: String?,
+    val emailSignInEnabled: Boolean = false,
+    val canLinkEmail: Boolean = false,
+)
 
 @RestController
 @Profile("!roster")
@@ -25,17 +33,22 @@ class PublicSessionController {
 
 @RestController
 @Profile("roster")
-class RosterController(private val store: RosterStore) {
+class RosterController(private val store: RosterStore, private val emailSignIn: EmailSignIn) {
     @GetMapping("/api/session")
-    fun session(@AuthenticationPrincipal user: OidcUser?, csrf: CsrfToken): ResponseEntity<RosterSession> =
-        privateResponse(RosterSession(true, user?.let { it.fullName ?: "Organiser" }, user?.let { csrf.token }))
+    fun session(@AuthenticationPrincipal principal: Any?, csrf: CsrfToken): ResponseEntity<RosterSession> {
+        val account = rosterAccount(principal)
+        val emailEnabled = emailSignIn.enabled
+        val csrfToken = if (account != null || emailEnabled) csrf.token else null
+        return privateResponse(RosterSession(true, account?.displayName, csrfToken, emailEnabled,
+            emailEnabled && principal is OidcUser && account != null))
+    }
 
     @GetMapping("/api/roster")
-    fun roster(@AuthenticationPrincipal user: OidcUser): ResponseEntity<SavedRoster> =
-        privateResponse(store.read(accountSubject(user)))
+    fun roster(@AuthenticationPrincipal principal: Any?): ResponseEntity<SavedRoster> =
+        privateResponse(store.read(accountSubject(principal)))
 
     @PutMapping("/api/roster")
-    fun save(@AuthenticationPrincipal user: OidcUser, @RequestBody roster: SavedRoster): ResponseEntity<SavedRoster> {
+    fun save(@AuthenticationPrincipal principal: Any?, @RequestBody roster: SavedRoster): ResponseEntity<SavedRoster> {
         val draft = roster.draft
         val players = draft.players + draft.guests
         val valid = roster.revision >= 0 && draft.players.size <= 1000 &&
@@ -46,12 +59,12 @@ class RosterController(private val store: RosterStore) {
                     it.skillRating in 1..5 && it.positions.distinct().size == it.positions.size
             } && draft.players.map { it.id }.toSet().containsAll(draft.attendingIds)
         if (!valid) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Check player details and match selection.")
-        if (!store.save(accountSubject(user), roster)) throw ResponseStatusException(HttpStatus.CONFLICT, "Roster changed on another device.")
+        if (!store.save(accountSubject(principal), roster)) throw ResponseStatusException(HttpStatus.CONFLICT, "Roster changed on another device.")
         return privateResponse(roster.copy(revision = roster.revision + 1))
     }
 
-    private fun accountSubject(user: OidcUser): String =
-        user.subject ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
+    private fun accountSubject(principal: Any?): String =
+        rosterAccount(principal)?.subject ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
 
     private fun <T : Any> privateResponse(body: T): ResponseEntity<T> =
         ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body)
