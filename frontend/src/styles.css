@@ -43,7 +43,22 @@
   .player-list { @apply mt-4 divide-y divide-[#e3ebe5] border-t border-[#e3ebe5]; }
   .player { @apply py-3; }
   .account { @apply ml-auto text-sm font-semibold tracking-normal; }
-  .account a, .account button { @apply rounded-lg bg-[#d9f2dd] px-3 py-2 text-[#153a2e]; }
+  .account > a, .account > button { @apply rounded-lg bg-[#d9f2dd] px-3 py-2 text-[#153a2e]; }
+  .workspace-toolbar { @apply mt-5 grid grid-cols-1 items-start gap-y-1 border-b border-[#ccd9d0] pb-3; }
+  .workspace-switcher { @apply grid min-w-0 gap-1.5; }
+  .workspace-switcher-line { @apply flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1; }
+  .workspace-switcher-line select { @apply w-full max-w-sm min-w-0 sm:w-72; }
+  .workspace-description { @apply text-sm text-[#4c6259]; }
+  .workspace-options { @apply w-full min-w-0 max-w-xl; }
+  .workspace-options > summary { @apply w-fit min-h-11 cursor-pointer py-3 text-sm font-semibold text-[#194435]; }
+  .workspace-options-body { @apply mt-1 border-t border-[#e3ebe5] pt-2; }
+  .workspace-option-actions { @apply flex flex-wrap gap-x-5 gap-y-1; }
+  .workspace-option-actions [aria-pressed="true"] { @apply text-[#182a26] decoration-current; }
+  .workspace-form { @apply mt-3 grid max-w-lg gap-3 pb-2; }
+  .workspace-form label { @apply grid min-w-0 gap-1.5; }
+  .workspace-form .hint { @apply mt-0; }
+  .workspace-form-actions { @apply flex flex-wrap items-center gap-x-4 gap-y-2; }
+  .workspace-notice { @apply col-span-full text-sm text-[#4c6259]; }
   .match-workspace { @apply mt-5 sm:mt-8 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]; }
   .match-workspace h1 { @apply text-2xl font-bold tracking-tight sm:text-3xl; }
   .match-workspace .settings { @apply lg:sticky lg:top-5; }
@@ -154,4 +169,45 @@
   .organiser-details input, .share-controls input { @apply size-4 accent-[#19543f]; }
   .team-coverage { @apply mt-4; }
   .team-coverage h4 { @apply text-sm font-semibold; }
+}
+
+@layer components {
+  .sign-in-dialog {
+    @apply fixed inset-0 m-auto w-[min(27rem,calc(100%-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl bg-white p-6 text-[#182a26] sm:p-8;
+    box-shadow: 0 18px 60px rgb(15 43 33 / 20%);
+  }
+  .sign-in-dialog::backdrop { background: rgb(12 36 27 / 56%); backdrop-filter: blur(3px); }
+  html:has(.sign-in-dialog[open]) { overflow: hidden; }
+  .sign-in-dialog h2 { @apply self-center text-2xl font-bold tracking-tight; }
+  .sign-in-close { @apply -mr-2 grid size-11 shrink-0 place-items-center rounded-lg text-[#4c6259] hover:bg-[#eaf3eb]; }
+  .sign-in-dialog .hint { @apply mt-1; }
+  .sign-in-google { @apply mt-6 flex min-h-12 items-center justify-center gap-3 rounded-lg border border-[#b5c8bc] font-semibold hover:bg-[#eef5ef]; }
+  .sign-in-divider { @apply my-5 flex items-center gap-3 text-sm text-[#4c6259]; }
+  .sign-in-divider::before, .sign-in-divider::after { content: ''; @apply h-px flex-1 bg-[#dbe4dc]; }
+  .sign-in-dialog .add-form { @apply mt-0 gap-3; }
+  .sign-in-dialog input { @apply mt-1 min-h-12 text-base; }
+  .sign-in-dialog button[type="submit"] { @apply min-h-12 w-full bg-[#19543f] text-white enabled:hover:bg-[#113d2e]; }
+}
+
+@layer components {
+  .account-trigger { @apply flex max-w-[45vw] items-center gap-2; }
+  .account-panel {
+    @apply fixed m-0 max-h-[calc(100dvh-5rem)] w-[min(19rem,calc(100vw-2rem))] overflow-auto rounded-xl border border-[#ccd9d0] bg-white p-1.5 text-sm font-normal text-[#182a26];
+    inset: 3.6rem 1.25rem auto auto;
+    box-shadow: 0 8px 28px rgb(21 58 46 / 15%);
+  }
+  @media (min-width: 40rem) {
+    .account-panel { right: max(2rem, calc((100% - 68rem) / 2)); }
+  }
+  .account-identity { @apply mx-2 mb-1 border-b border-[#dbe4dc] px-1 pb-3 pt-2 wrap-anywhere; }
+  .account-identity h2 { @apply text-base font-bold; }
+  .account-identity p, .account-feedback { @apply mt-1 text-sm text-[#4c6259]; }
+  .account-action { @apply flex min-h-11 w-full cursor-pointer items-center justify-between rounded-lg px-3 text-left font-medium hover:bg-[#eaf3eb] focus-visible:outline-offset-[-2px]; }
+  .account-methods > summary { list-style: none; }
+  .account-methods > summary::-webkit-details-marker { display: none; }
+  .account-methods > summary::after { content: ''; @apply mr-1 size-2 -rotate-45 border-b-2 border-r-2 border-[#4c6259]; }
+  .account-methods[open] > summary::after { @apply rotate-45; }
+  .account-edit, .account-methods-body { @apply grid gap-2 px-3 pb-3 pt-1; }
+  .account-feedback { @apply px-3 pb-2; }
+  .account-panel > form:last-child { @apply border-t border-[#dbe4dc]; }
 }
