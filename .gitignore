@@ -44,5 +44,5 @@ out/
 /frontend/dist/
 /frontend/.vite/
 
-./.impeccable
+/.impeccable/
 /.env
