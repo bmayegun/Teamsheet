@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
+import PasswordEditor from './PasswordEditor'
 import EmailSignIn from './EmailSignIn'
 import type { Session } from './useSavedRoster'
 
@@ -6,6 +7,7 @@ export default function AccountMenu({ session }: { session: Session }) {
   const [name, setName] = useState(session.name ?? '')
   const [draft, setDraft] = useState(name)
   const [email, setEmail] = useState(session.linkedEmail)
+  const [passwordEditing, setPasswordEditing] = useState(false)
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
@@ -56,8 +58,17 @@ export default function AccountMenu({ session }: { session: Session }) {
       <details className="account-methods">
         <summary className="account-action">Sign-in methods</summary>
         <div className="account-methods-body">
-          <p>Signed in with {session.signInMethod === 'email' ? 'an email code' : 'Google'}.</p>
+          <p>Signed in with {session.signInMethod === 'email' ? 'an email code' : session.signInMethod === 'password' ? 'email and password' : 'Google'}.</p>
           {email && session.signInMethod !== 'email' && <p role="status">Email code sign-in is also enabled.</p>}
+          {email && session.csrfToken && <>
+            {!passwordEditing ? <button className="text-button" type="button" onClick={() => setPasswordEditing(true)}>
+              {session.hasPassword ? 'Change password' : 'Set password'}
+            </button> : <>
+              <PasswordEditor csrfToken={session.csrfToken}
+                requireCurrent={!!session.hasPassword} onSaved={() => location.assign('/')} />
+              <button className="text-button" type="button" onClick={() => setPasswordEditing(false)}>Cancel</button>
+            </>}
+          </>}
           {!email && session.canLinkEmail && session.csrfToken && <details>
             <summary className="text-button">Link email sign-in</summary>
             <EmailSignIn linking csrfToken={session.csrfToken} onLinked={setEmail} />

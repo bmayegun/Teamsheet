@@ -48,6 +48,20 @@ class RosterApiTests {
     private lateinit var controller: RosterController
 
     @Test
+    fun `reading account status does not update member names`() {
+        val principal = Mockito.mock(OidcUser::class.java)
+        Mockito.`when`(principal.subject).thenReturn("read-only-session")
+        Mockito.`when`(principal.fullName).thenReturn("Google Name")
+        Mockito.clearInvocations(clubs)
+        val csrf = org.springframework.security.web.csrf.DefaultCsrfToken("X-CSRF-TOKEN", "_csrf", "test-token")
+        val request = org.springframework.mock.web.MockHttpServletRequest()
+        repeat(2) {
+            assertEquals("Google Name", controller.session(principal, csrf, request).body?.name)
+        }
+        Mockito.verify(clubs, Mockito.never()).updateDisplayName(Mockito.anyString(), Mockito.anyString())
+    }
+
+    @Test
     fun `private roster requires sign-in while Google login can be started`() {
         val client = HttpClient.newHttpClient()
         fun get(path: String) = client.send(
@@ -55,6 +69,7 @@ class RosterApiTests {
             HttpResponse.BodyHandlers.ofString(),
         )
         assertEquals(401, get("/api/roster").statusCode())
+        assertEquals(401, get("/api/account/unknown").statusCode())
         val session = get("/api/session")
         assertEquals(200, session.statusCode())
         assertTrue(session.body().contains("\"name\":null"))

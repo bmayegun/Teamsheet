@@ -16,7 +16,7 @@ import org.springframework.web.server.ResponseStatusException
 
 internal class EmailSendLimit(val daily: Boolean, val waitSeconds: Int = 60) : RuntimeException()
 
-data class RosterAccount(val subject: String, val displayName: String)
+data class RosterAccount(val subject: String, val displayName: String, val method: String = "email")
 
 internal fun rosterAccount(principal: Any?): RosterAccount? = when (principal) {
     is RosterAccount -> principal
@@ -36,18 +36,19 @@ class EmailSignIn(
     private val addressPattern = Regex("[A-Za-z0-9_+.!%'-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+")
     val enabled: Boolean get() = mailer.configured && secret.length >= 32
 
-    internal fun linkedEmail(subject: String) = store.linkedEmail(subject)
+    internal fun identity(subject: String) = store.identity(subject)
 
     internal fun requestCode(address: String, browser: String, account: String?): UUID {
         val email = address.trim().lowercase(Locale.ROOT)
         if (email.length > 254 || !addressPattern.matches(email)) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Enter a valid email address.")
         }
+        val reverifying = account != null && store.identity(account)?.email == email
         val id = UUID.randomUUID()
         val code = random.nextInt(1_000_000).toString().padStart(6, '0')
         store.issue(email, id, browser, account, hash(id, code))
         try {
-            mailer.sendCode(email, code, account != null)
+            mailer.sendCode(email, code, account != null, reverifying)
         } catch (error: IOException) {
             // The provider body can contain request details. Log only the failure type.
             logger.warn("Email delivery could not send a sign-in code ({})", error.javaClass.simpleName)

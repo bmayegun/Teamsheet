@@ -43,6 +43,7 @@ import tools.jackson.databind.json.JsonMapper
 ])
 class EmailSignInApiTests {
     @LocalServerPort private var port = 0
+    @MockitoBean private lateinit var passwordSafety: com.biz.teamsheet.auth.PasswordSafety
     @MockitoBean private lateinit var resend: SignInEmail
     @Autowired private lateinit var json: JsonMapper
     @Autowired private lateinit var codes: EmailSignInStore
@@ -58,6 +59,12 @@ class EmailSignInApiTests {
         fun session() = json.readTree(get("/api/session").body()).also { csrf = it.path("csrfToken").asText() }
 
         fun get(path: String) = send(request(path).build())
+
+        fun put(path: String, body: Map<String, Any>, includeCsrf: Boolean = true): HttpResponse<String> {
+            val builder = request(path).header("Content-Type", "application/json")
+            if (includeCsrf) builder.header("X-CSRF-TOKEN", checkNotNull(csrf))
+            return send(builder.PUT(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build())
+        }
 
         fun delete(path: String) = send(request(path).header("X-CSRF-TOKEN", checkNotNull(csrf)).DELETE().build())
 
@@ -114,6 +121,11 @@ class EmailSignInApiTests {
         val revokeResponse = browser.delete("/api/clubs/$clubId/invitations")
         assertEquals(204, revokeResponse.statusCode(), revokeResponse.body())
         assertEquals(401, otherBrowser.get("/api/roster").statusCode())
+        val password = "legacy roster password 123"
+        assertEquals(204, browser.put("/api/account/password", mapOf("password" to password)).statusCode())
+        otherBrowser.session()
+        assertEquals(204, otherBrowser.post("/api/auth/password", mapOf("email" to email, "password" to password)).statusCode())
+        assertTrue(otherBrowser.get("/api/roster").body().contains(marker))
     }
 
     @Test
@@ -153,6 +165,152 @@ class EmailSignInApiTests {
         assertEquals("Alex", clubs.preferredName(subject))
         for (club in listOf(existing, next)) {
             assertEquals("Alex", clubs.management(subject, club.id).members.single().name)
+        }
+    }
+
+    @Test
+    fun `verified email can set password login change and recover the same roster`() {
+        val email = "${UUID.randomUUID()}@example.test"
+        val sent = stubResend()
+        val setup = Browser()
+        setup.session()
+        val password = "ab cdefg"
+        val replacement = "a different replacement password 456"
+        assertEquals(401, setup.put("/api/account/password", mapOf("password" to password)).statusCode())
+        fun verify(browser: Browser) {
+            val issued = browser.post("/api/auth/email/request", mapOf("email" to email))
+            assertEquals(200, issued.statusCode())
+            val id = json.readTree(issued.body()).path("challengeId").asString()
+            assertEquals(204, browser.post("/api/auth/email/verify", mapOf("challengeId" to id, "code" to sent.get())).statusCode())
+            browser.session()
+        }
+        verify(setup)
+        assertEquals(400, setup.put("/api/account/password", mapOf("password" to "short")).statusCode())
+        assertEquals(400, setup.put("/api/account/password", mapOf("password" to "abcdefg")).statusCode())
+        org.mockito.Mockito.doThrow(org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY))
+            .`when`(passwordSafety).check("Password1!")
+        assertEquals(422, setup.put("/api/account/password", mapOf("password" to "Password1!")).statusCode())
+        assertEquals(204, setup.put("/api/account/password", mapOf("password" to password)).statusCode())
+        assertTrue(setup.session().path("hasPassword").asBoolean())
+        assertTrue(setup.session().path("passwordVerificationExpiresAt").isNull)
+        val marker = "Preserved across password login"
+        val roster = mapOf("revision" to 0, "draft" to mapOf("players" to listOf(
+            mapOf("id" to "password-test", "name" to marker, "skillRating" to 3, "positions" to emptyList<String>())
+        ), "attendingIds" to emptyList<String>(), "guests" to emptyList<String>()))
+        assertEquals(200, setup.put("/api/roster", roster).statusCode())
+
+        val login = Browser()
+        login.session()
+        val initial = login.id
+        assertEquals(403, login.post("/api/auth/password", mapOf("email" to email, "password" to password), false).statusCode())
+        assertEquals(401, login.post("/api/auth/password", mapOf("email" to email, "password" to "wrong")).statusCode())
+        assertEquals(204, login.post("/api/auth/password", mapOf("email" to email.uppercase(), "password" to password)).statusCode())
+        assertNotEquals(initial, login.id)
+        assertEquals("password", login.session().path("signInMethod").asString())
+        assertTrue(login.get("/api/roster").body().contains(marker))
+        assertEquals(403, login.put("/api/account/password", mapOf("password" to replacement)).statusCode())
+        assertEquals(403, login.put("/api/account/password", mapOf("password" to replacement, "currentPassword" to "wrong")).statusCode())
+        assertEquals(204, login.put("/api/account/password", mapOf("password" to replacement, "currentPassword" to password)).statusCode())
+
+        ageCode(email)
+        val recovery = Browser()
+        recovery.session()
+        verify(recovery)
+        assertTrue(recovery.get("/api/roster").body().contains(marker))
+        assertEquals(204, recovery.put("/api/account/password", mapOf("password" to password)).statusCode())
+        recovery.session()
+        // The email proof was consumed by the reset, so changing again needs fresh proof.
+        val proofRequired = recovery.put("/api/account/password", mapOf("password" to replacement))
+        assertEquals(403, proofRequired.statusCode())
+        assertEquals("password_verification_required", json.readTree(proofRequired.body()).path("code").asString())
+        agePasswordAttempts(email)
+        val finalLogin = Browser()
+        finalLogin.session()
+        assertEquals(401, finalLogin.post("/api/auth/password", mapOf("email" to email, "password" to replacement)).statusCode())
+        assertEquals(204, finalLogin.post("/api/auth/password", mapOf("email" to email, "password" to password)).statusCode())
+    }
+
+    @Test
+    fun `concurrent password setup consumes email proof only once`() {
+        val browser = Browser()
+        browser.session()
+        val sent = stubResend()
+        val issued = browser.post("/api/auth/email/request", mapOf("email" to "${UUID.randomUUID()}@example.test"))
+        assertEquals(200, issued.statusCode())
+        val id = json.readTree(issued.body()).path("challengeId").asString()
+        assertEquals(204, browser.post("/api/auth/email/verify", mapOf("challengeId" to id, "code" to sent.get())).statusCode())
+        browser.session()
+        val requests = List(2) { index ->
+            java.util.concurrent.CompletableFuture.supplyAsync {
+                browser.put("/api/account/password", mapOf("password" to "concurrent password $index")).statusCode()
+            }
+        }
+        assertEquals(listOf(204, 403), requests.map { it.join() }.sorted())
+    }
+
+    @Test
+    fun `verified email recovery works after password guessing exhausts the account limit`() {
+        val browser = Browser()
+        browser.session()
+        val sent = stubResend()
+        val email = "${UUID.randomUUID()}@example.test"
+        val issued = browser.post("/api/auth/email/request", mapOf("email" to email))
+        val id = json.readTree(issued.body()).path("challengeId").asString()
+        assertEquals(204, browser.post("/api/auth/email/verify", mapOf("challengeId" to id, "code" to sent.get())).statusCode())
+        browser.session()
+        assertEquals(204, browser.put("/api/account/password", mapOf("password" to "initial password example")).statusCode())
+        browser.session()
+        val attacker = Browser()
+        attacker.session()
+        repeat(10) {
+            assertEquals(401, attacker.post("/api/auth/password", mapOf("email" to email, "password" to "wrong")).statusCode())
+        }
+        assertEquals(429, attacker.post("/api/auth/password", mapOf("email" to email, "password" to "wrong")).statusCode())
+        ageCode(email)
+        val recoveryCode = browser.post("/api/auth/email/request", mapOf("email" to email, "linking" to true))
+        assertEquals(200, recoveryCode.statusCode())
+        val recoveryId = json.readTree(recoveryCode.body()).path("challengeId").asString()
+        assertEquals(204, browser.post("/api/auth/email/verify",
+            mapOf("challengeId" to recoveryId, "code" to sent.get(), "linking" to true)).statusCode())
+        assertEquals(204, browser.put("/api/account/password", mapOf("password" to "a recovered password 123")).statusCode())
+        assertEquals("email", browser.session().path("signInMethod").asString())
+        assertTrue(browser.session().path("hasPassword").asBoolean())
+    }
+
+    @Test
+    fun `member fallback labels do not expose verified email addresses`() {
+        val subject = "privacy-${UUID.randomUUID()}"
+        val email = "private-person-${UUID.randomUUID()}@example.test"
+        val id = UUID.randomUUID()
+        val hash = byteArrayOf(1, 2, 3)
+        codes.issue(email, id, "privacy-browser", subject, hash)
+        assertEquals(EmailVerification.Verified(subject), codes.verify(id, "privacy-browser", subject, hash))
+        val club = clubs.create(subject, "Privacy club")
+        val member = clubs.management(subject, club.id).members.single()
+        assertEquals("Member " + member.id.toString().take(8), member.name)
+        clubs.updateDisplayName(subject, "Chosen Member Name")
+        assertEquals("Chosen Member Name", clubs.management(subject, club.id).members.single().name)
+        clubs.savePreferredName(subject, "Preferred Member Name")
+        assertEquals("Preferred Member Name", clubs.management(subject, club.id).members.single().name)
+    }
+
+    @Test
+    fun `password guessing has a persistent limit for unknown addresses too`() {
+        val browser = Browser()
+        browser.session()
+        val body = mapOf("email" to "${UUID.randomUUID()}@example.test", "password" to "wrong password")
+        repeat(10) { assertEquals(401, browser.post("/api/auth/password", body).statusCode()) }
+        assertEquals(429, browser.post("/api/auth/password", body).statusCode())
+    }
+
+    private fun agePasswordAttempts(email: String) {
+        val key = java.security.MessageDigest.getInstance("SHA-256").digest(email.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        java.sql.DriverManager.getConnection(checkNotNull(System.getenv("TEAMSHEET_AUTH_TEST_JDBC")), testUsername(), testPassword()).use { c ->
+            c.prepareStatement("UPDATE password_sign_in_limits SET started_at = now() - interval '16 minutes' WHERE bucket = ?").use {
+                it.setString(1, key)
+                it.executeUpdate()
+            }
         }
     }
 
@@ -260,7 +418,7 @@ class EmailSignInApiTests {
         Mockito.doAnswer {
             code.set(it.getArgument<String>(1))
             null
-        }.`when`(resend).sendCode(anyString(), anyString(), anyBoolean())
+        }.`when`(resend).sendCode(anyString(), anyString(), anyBoolean(), anyBoolean())
         return code
     }
 
