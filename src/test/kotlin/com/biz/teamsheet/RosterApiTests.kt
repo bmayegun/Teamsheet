@@ -1,5 +1,6 @@
 package com.biz.teamsheet
 
+import com.biz.teamsheet.club.ClubStore
 import com.biz.teamsheet.auth.EmailSignInStore
 import com.biz.teamsheet.model.Player
 import com.biz.teamsheet.roster.RosterController
@@ -39,6 +40,9 @@ class RosterApiTests {
 
     @MockitoBean
     private lateinit var emailStore: EmailSignInStore
+
+    @MockitoBean
+    private lateinit var clubs: ClubStore
 
     @Autowired
     private lateinit var controller: RosterController

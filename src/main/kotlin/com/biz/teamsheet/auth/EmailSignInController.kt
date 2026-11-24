@@ -28,6 +28,13 @@ class EmailSignInController(private val signIn: EmailSignIn) {
     private val contextRepository = HttpSessionSecurityContextRepository()
     private val csrfRepository = HttpSessionCsrfTokenRepository()
 
+    @org.springframework.web.bind.annotation.ExceptionHandler(EmailSendLimit::class)
+    internal fun limit(error: EmailSendLimit): ResponseEntity<Map<String, String>> {
+        val response = ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).cacheControl(CacheControl.noStore())
+        if (!error.daily) response.header("Retry-After", error.waitSeconds.toString())
+        return response.body(mapOf("limit" to if (error.daily) "daily" else "cooldown"))
+    }
+
     @PostMapping("/api/auth/email/request")
     fun requestCode(@RequestBody body: CodeRequest, @AuthenticationPrincipal principal: Any?,
                     request: HttpServletRequest): ResponseEntity<Challenge> {
@@ -44,7 +51,8 @@ class EmailSignInController(private val signIn: EmailSignIn) {
         val subject = signIn.verify(body.challengeId, body.code, browser, account)
         if (!body.linking) {
             request.changeSessionId()
-            csrfRepository.saveToken(null, request, response)
+            // Publish one fresh token before the browser starts concurrent session reads.
+            csrfRepository.saveToken(csrfRepository.generateToken(request), request, response)
             val context = SecurityContextHolder.createEmptyContext()
             context.authentication = UsernamePasswordAuthenticationToken.authenticated(RosterAccount(subject, "Organiser"), null, emptyList())
             SecurityContextHolder.setContext(context)

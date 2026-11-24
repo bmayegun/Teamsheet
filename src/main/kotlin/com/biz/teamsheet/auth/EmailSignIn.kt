@@ -14,6 +14,8 @@ import org.springframework.security.oauth2.core.oidc.user.OidcUser
 import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
 
+internal class EmailSendLimit(val daily: Boolean, val waitSeconds: Int = 60) : RuntimeException()
+
 data class RosterAccount(val subject: String, val displayName: String)
 
 internal fun rosterAccount(principal: Any?): RosterAccount? = when (principal) {
@@ -26,13 +28,15 @@ internal fun rosterAccount(principal: Any?): RosterAccount? = when (principal) {
 @Profile("roster")
 class EmailSignIn(
     private val store: EmailSignInStore,
-    private val mailer: ResendEmail,
+    private val mailer: SignInEmail,
     @Value("\${teamsheet.email.code-secret}") private val secret: String,
 ) {
     private val random = SecureRandom()
     private val logger = LoggerFactory.getLogger(javaClass)
     private val addressPattern = Regex("[A-Za-z0-9_+.!%'-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+")
     val enabled: Boolean get() = mailer.configured && secret.length >= 32
+
+    internal fun linkedEmail(subject: String) = store.linkedEmail(subject)
 
     internal fun requestCode(address: String, browser: String, account: String?): UUID {
         val email = address.trim().lowercase(Locale.ROOT)
@@ -41,14 +45,12 @@ class EmailSignIn(
         }
         val id = UUID.randomUUID()
         val code = random.nextInt(1_000_000).toString().padStart(6, '0')
-        if (!store.issue(email, id, browser, account, hash(id, code))) {
-            throw ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Please wait before requesting another code.")
-        }
+        store.issue(email, id, browser, account, hash(id, code))
         try {
             mailer.sendCode(email, code, account != null)
         } catch (error: IOException) {
             // The provider body can contain request details. Log only the failure type.
-            logger.warn("Resend could not send a sign-in code ({})", error.javaClass.simpleName)
+            logger.warn("Email delivery could not send a sign-in code ({})", error.javaClass.simpleName)
             throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Could not send a code. Try again in a minute.")
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()

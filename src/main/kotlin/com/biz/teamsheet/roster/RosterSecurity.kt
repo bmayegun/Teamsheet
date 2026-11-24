@@ -16,7 +16,7 @@ class RosterSecurity {
     @Profile("roster")
     fun privateRosterFilterChain(http: HttpSecurity): SecurityFilterChain = http
         .authorizeHttpRequests {
-            it.requestMatchers("/api/roster", "/api/roster/**").authenticated()
+            it.requestMatchers("/api/roster", "/api/roster/**", "/api/clubs", "/api/clubs/**").authenticated()
                 .anyRequest().permitAll()
         }
         .csrf { it.ignoringRequestMatchers("/api/teams/generate") }

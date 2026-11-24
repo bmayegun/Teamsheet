@@ -21,7 +21,14 @@ class EmailSignInStore(
     @Value("\${teamsheet.roster.username}") private val username: String,
     @Value("\${teamsheet.roster.password}") private val password: String,
 ) {
-    internal fun issue(email: String, id: UUID, browser: String, account: String?, hash: ByteArray): Boolean =
+    internal fun linkedEmail(subject: String): String? = transaction { connection ->
+        connection.prepareStatement("SELECT email FROM email_sign_in_identities WHERE account_subject = ?").use {
+            it.setString(1, subject)
+            it.executeQuery().use { rows -> if (rows.next()) rows.getString(1) else null }
+        }
+    }
+
+    internal fun issue(email: String, id: UUID, browser: String, account: String?, hash: ByteArray): Unit =
         transaction { connection ->
             // Reserve the shared budget first to serialize concurrent send reservations.
             val reserved = connection.prepareStatement("""
@@ -31,7 +38,7 @@ class EmailSignInStore(
                 WHERE email_sign_in_send_limits.sent_count < 200
             """).use { it.executeUpdate() == 1 }
 
-            if (!reserved) return@transaction false
+            if (!reserved) throw EmailSendLimit(daily = true)
             val issued = connection.prepareStatement("""
                 INSERT INTO email_sign_in_codes (email, challenge_id, browser_id, link_subject, code_hash, attempts_left)
                 VALUES (?, ?, ?, ?, ?, 5)
@@ -50,14 +57,21 @@ class EmailSignInStore(
                 it.executeUpdate() == 1
             }
             if (!issued) {
-                connection.rollback()
-                return@transaction false
+                val limit = connection.prepareStatement("""
+                    SELECT daily_sends >= 8 AND send_day = (now() AT TIME ZONE 'UTC')::date,
+                        greatest(1, ceil(extract(epoch from issued_at + interval '1 minute' - now())))::int
+                    FROM email_sign_in_codes WHERE email = ?
+                """).use {
+                    it.setString(1, email)
+                    it.executeQuery().use { row -> check(row.next()); EmailSendLimit(row.getBoolean(1), row.getInt(2)) }
+                }
+                throw limit
             }
             connection.createStatement().use {
                 it.executeUpdate("DELETE FROM email_sign_in_codes WHERE issued_at < now() - interval '1 day'")
                 it.executeUpdate("DELETE FROM email_sign_in_send_limits WHERE utc_day < (now() AT TIME ZONE 'UTC')::date - 1")
             }
-            true
+            Unit
         }
 
     internal fun verify(id: UUID, browser: String, account: String?, hash: ByteArray): EmailVerification =
