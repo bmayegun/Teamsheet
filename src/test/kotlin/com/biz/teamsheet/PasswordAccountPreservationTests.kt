@@ -9,7 +9,6 @@ import com.biz.teamsheet.club.ClubStore
 import com.biz.teamsheet.roster.RosterController
 import com.biz.teamsheet.roster.RosterSecurity
 import com.biz.teamsheet.roster.RosterStore
-import java.sql.SQLException
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -75,7 +74,7 @@ class PasswordAccountPreservationTests {
     @Test
     fun `Google redirect continues when updating the cosmetic member name fails`() {
         val clubs = Mockito.mock(ClubStore::class.java)
-        Mockito.doAnswer { throw SQLException("test unavailable database") }.`when`(clubs)
+        Mockito.doAnswer { throw org.springframework.dao.DataAccessResourceFailureException("test unavailable database") }.`when`(clubs)
             .updateDisplayName("google-account", "Google Profile Name")
         val request = MockHttpServletRequest()
         val response = MockHttpServletResponse()

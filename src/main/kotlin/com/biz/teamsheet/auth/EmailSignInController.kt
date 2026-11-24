@@ -1,5 +1,6 @@
 package com.biz.teamsheet.auth
 
+import org.springframework.web.bind.annotation.ExceptionHandler
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import java.util.UUID
@@ -20,7 +21,7 @@ class EmailSignInController(private val signIn: EmailSignIn) {
     data class CodeVerification(val challengeId: UUID, val code: String, val linking: Boolean = false)
     data class Challenge(val challengeId: UUID)
 
-    @org.springframework.web.bind.annotation.ExceptionHandler(EmailSendLimit::class)
+    @ExceptionHandler(EmailSendLimit::class)
     internal fun limit(error: EmailSendLimit): ResponseEntity<Map<String, String>> {
         val response = ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).cacheControl(CacheControl.noStore())
         if (!error.daily) response.header("Retry-After", error.waitSeconds.toString())

@@ -1,9 +1,8 @@
 package com.biz.teamsheet.roster
 
+import org.springframework.jdbc.core.simple.JdbcClient
+import org.springframework.transaction.annotation.Transactional
 import com.biz.teamsheet.model.Player
-import java.sql.DriverManager
-import org.flywaydb.core.Flyway
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Repository
 import tools.jackson.databind.json.JsonMapper
@@ -18,25 +17,16 @@ data class SavedRoster(val revision: Int, val draft: RosterDraft)
 
 @Repository
 @Profile("roster")
+@Transactional(rollbackFor = [Exception::class])
 class RosterStore(
-    @Value("\${teamsheet.roster.jdbc-url}") private val url: String,
-    @Value("\${teamsheet.roster.username}") private val username: String,
-    @Value("\${teamsheet.roster.password}") private val password: String,
+    private val jdbc: JdbcClient,
     private val json: JsonMapper,
 ) {
-    init {
-        Flyway.configure().dataSource(url, username, password).load().migrate()
-    }
-
-    fun read(subject: String): SavedRoster = DriverManager.getConnection(url, username, password).use { connection ->
-        connection.prepareStatement("SELECT revision, payload FROM saved_rosters WHERE account_subject = ?").use { statement ->
-            statement.setString(1, subject)
-            statement.executeQuery().use { rows ->
-                if (rows.next()) SavedRoster(rows.getInt(1), json.readValue(rows.getString(2), RosterDraft::class.java))
-                else SavedRoster(0, RosterDraft())
-            }
-        }
-    }
+    @Transactional(readOnly = true)
+    fun read(subject: String): SavedRoster = jdbc.sql("SELECT revision, payload FROM saved_rosters WHERE account_subject = ?")
+        .param(subject)
+        .query { rows, _ -> SavedRoster(rows.getInt(1), json.readValue(rows.getString(2), RosterDraft::class.java)) }
+        .optional().orElseGet { SavedRoster(0, RosterDraft()) }
 
     fun save(subject: String, roster: SavedRoster): Boolean {
         val sql = if (roster.revision == 0) """
@@ -46,13 +36,7 @@ class RosterStore(
             UPDATE saved_rosters SET payload = CAST(? AS jsonb), revision = revision + 1
             WHERE account_subject = ? AND revision = ?
         """
-        return DriverManager.getConnection(url, username, password).use { connection ->
-            connection.prepareStatement(sql).use { statement ->
-                statement.setString(1, json.writeValueAsString(roster.draft))
-                statement.setString(2, subject)
-                if (roster.revision > 0) statement.setInt(3, roster.revision)
-                statement.executeUpdate() == 1
-            }
-        }
+        val query = jdbc.sql(sql).param(json.writeValueAsString(roster.draft)).param(subject)
+        return (if (roster.revision > 0) query.param(roster.revision) else query).update() == 1
     }
 }

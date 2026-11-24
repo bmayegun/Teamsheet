@@ -1,12 +1,12 @@
 package com.biz.teamsheet.auth
 
 import java.security.MessageDigest
-import java.sql.Connection
-import java.sql.DriverManager
 import java.util.UUID
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Repository
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.jdbc.core.ConnectionCallback
+import org.springframework.transaction.annotation.Transactional
 
 internal sealed interface EmailVerification {
     data class Verified(val subject: String) : EmailVerification
@@ -16,29 +16,28 @@ internal sealed interface EmailVerification {
 
 @Repository
 @Profile("roster")
-class EmailSignInStore(
-    @Value("\${teamsheet.roster.jdbc-url}") private val url: String,
-    @Value("\${teamsheet.roster.username}") private val username: String,
-    @Value("\${teamsheet.roster.password}") private val password: String,
-) {
+@Transactional(rollbackFor = [Exception::class])
+class EmailSignInStore(private val jdbc: JdbcTemplate) {
     internal data class EmailIdentity(val email: String, val hasPassword: Boolean)
 
-    internal fun identity(subject: String): EmailIdentity? = transaction { connection ->
+    @Transactional(readOnly = true)
+    internal fun identity(subject: String): EmailIdentity? = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("SELECT email, password_hash IS NOT NULL FROM email_sign_in_identities WHERE account_subject = ?").use {
             it.setString(1, subject)
             it.executeQuery().use { rows -> if (rows.next()) EmailIdentity(rows.getString(1), rows.getBoolean(2)) else null }
         }
-    }
+    })
 
-    internal fun linkedEmail(subject: String): String? = transaction { connection ->
+    @Transactional(readOnly = true)
+    internal fun linkedEmail(subject: String): String? = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("SELECT email FROM email_sign_in_identities WHERE account_subject = ?").use {
             it.setString(1, subject)
             it.executeQuery().use { rows -> if (rows.next()) rows.getString(1) else null }
         }
-    }
+    })
 
     internal fun issue(email: String, id: UUID, browser: String, account: String?, hash: ByteArray): Unit =
-        transaction { connection ->
+        jdbc.execute(ConnectionCallback { connection ->
             // Reserve the shared budget first to serialize concurrent send reservations.
             val reserved = connection.prepareStatement("""
                 INSERT INTO email_sign_in_send_limits (utc_day, sent_count)
@@ -81,10 +80,10 @@ class EmailSignInStore(
                 it.executeUpdate("DELETE FROM email_sign_in_send_limits WHERE utc_day < (now() AT TIME ZONE 'UTC')::date - 1")
             }
             Unit
-        }
+        })
 
     internal fun verify(id: UUID, browser: String, account: String?, hash: ByteArray): EmailVerification =
-        transaction { connection ->
+        jdbc.execute(ConnectionCallback { connection ->
             val challenge = connection.prepareStatement("""
                 SELECT email, code_hash FROM email_sign_in_codes
                 WHERE challenge_id = ? AND browser_id = ? AND link_subject IS NOT DISTINCT FROM ?
@@ -95,7 +94,7 @@ class EmailSignInStore(
                 it.setString(2, browser)
                 it.setString(3, account)
                 it.executeQuery().use { rows -> if (rows.next()) rows.getString(1) to rows.getBytes(2) else null }
-            } ?: return@transaction EmailVerification.Invalid
+            } ?: return@ConnectionCallback EmailVerification.Invalid
 
             val (email, expectedHash) = challenge
             val matches = MessageDigest.isEqual(expectedHash, hash)
@@ -107,7 +106,7 @@ class EmailSignInStore(
                 it.setObject(2, id)
                 it.executeUpdate()
             }
-            if (!matches) return@transaction EmailVerification.Invalid
+            if (!matches) return@ConnectionCallback EmailVerification.Invalid
 
             val proposedSubject = account ?: "email:${UUID.randomUUID()}"
             connection.prepareStatement("""
@@ -126,18 +125,19 @@ class EmailSignInStore(
             }
             if (subject == null || (account != null && account != subject)) EmailVerification.AlreadyLinked
             else EmailVerification.Verified(subject)
-        }
+        })
 
     internal data class Credentials(val subject: String, val hash: String?)
 
-    internal fun credentials(email: String): Credentials? = transaction { connection ->
+    @Transactional(readOnly = true)
+    internal fun credentials(email: String): Credentials? = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("SELECT account_subject, password_hash FROM email_sign_in_identities WHERE email = ?").use {
             it.setString(1, email)
             it.executeQuery().use { rows -> if (rows.next()) Credentials(rows.getString(1), rows.getString(2)) else null }
         }
-    }
+    })
 
-    internal fun savePassword(subject: String, previousHash: String?, hash: String): Boolean = transaction { connection ->
+    internal fun savePassword(subject: String, previousHash: String?, hash: String): Boolean = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("""
             UPDATE email_sign_in_identities SET password_hash = ?
             WHERE account_subject = ? AND password_hash IS NOT DISTINCT FROM ?
@@ -147,9 +147,9 @@ class EmailSignInStore(
             it.setString(3, previousHash)
             it.executeUpdate() == 1
         }
-    }
+    })
 
-    internal fun reservePasswordAttempt(email: String): Boolean = transaction { connection ->
+    internal fun reservePasswordAttempt(email: String): Boolean = jdbc.execute(ConnectionCallback { connection ->
         val key = MessageDigest.getInstance("SHA-256").digest(email.toByteArray()).joinToString("") { "%02x".format(it) }
         for ((bucket, limit) in listOf("global" to 500, key to 10)) {
             val reserved = connection.prepareStatement("""
@@ -166,22 +166,12 @@ class EmailSignInStore(
                 it.setInt(2, limit)
                 it.executeUpdate() == 1
             }
-            if (!reserved) return@transaction false
+            if (!reserved) return@ConnectionCallback false
         }
         connection.createStatement().use {
             it.executeUpdate("DELETE FROM password_sign_in_limits WHERE started_at < now() - interval '1 day'")
         }
         true
-    }
+    })
 
-    private fun <T> transaction(action: (Connection) -> T): T =
-        DriverManager.getConnection(url, username, password).use { connection ->
-            connection.autoCommit = false
-            try {
-                action(connection).also { connection.commit() }
-            } catch (error: Exception) {
-                connection.rollback()
-                throw error
-            }
-        }
 }
