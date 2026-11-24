@@ -16,7 +16,7 @@ import org.springframework.web.server.ResponseStatusException
 
 internal class EmailSendLimit(val daily: Boolean, val waitSeconds: Int = 60) : RuntimeException()
 
-data class RosterAccount(val subject: String, val displayName: String)
+data class RosterAccount(val subject: String, val displayName: String, val method: String = "email")
 
 internal fun rosterAccount(principal: Any?): RosterAccount? = when (principal) {
     is RosterAccount -> principal
@@ -36,7 +36,7 @@ class EmailSignIn(
     private val addressPattern = Regex("[A-Za-z0-9_+.!%'-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+")
     val enabled: Boolean get() = mailer.configured && secret.length >= 32
 
-    internal fun linkedEmail(subject: String) = store.linkedEmail(subject)
+    internal fun identity(subject: String) = store.identity(subject)
 
     internal fun requestCode(address: String, browser: String, account: String?): UUID {
         val email = address.trim().lowercase(Locale.ROOT)

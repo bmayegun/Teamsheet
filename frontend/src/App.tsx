@@ -1,6 +1,6 @@
 import AccountMenu from './AccountMenu'
 import ClubWorkspaces from './ClubWorkspaces'
-import EmailSignIn from './EmailSignIn'
+import PasswordSignIn from './PasswordSignIn'
 import { useRef, useState, type FormEvent } from 'react'
 import PlayerEditor from './PlayerEditor'
 import ShareDraw from './ShareDraw'
@@ -21,7 +21,8 @@ export default function App() {
     catch { return [] }
   })
   const roster = useSavedRoster()
-  const [enteringCode, setEnteringCode] = useState(false)
+  const [hideSignInMethods, setHideSignInMethods] = useState(false)
+  const [signInTitle, setSignInTitle] = useState('Sign in to TeamSheet')
   const signInDialog = useRef<HTMLDialogElement>(null)
   const matchPlayers = roster.draft ? [
     ...roster.draft.players.filter(player => roster.draft?.attendingIds.includes(player.id)),
@@ -129,7 +130,6 @@ export default function App() {
     catch { /* Storage can be disabled in the browser. */ }
   }
 
-  const emailCsrf = roster.session?.emailSignInEnabled ? roster.session.csrfToken : null
 
   return <>
     <header className="masthead">
@@ -149,7 +149,7 @@ export default function App() {
       {roster.session?.enabled && !roster.session.name && <dialog ref={signInDialog}
         id="sign-in-panel" className="sign-in-dialog" aria-labelledby="sign-in-title">
         <div className="flex items-start justify-between gap-4">
-          <h2 id="sign-in-title">{enteringCode ? 'Enter your sign-in code' : 'Sign in to TeamSheet'}</h2>
+          <h2 id="sign-in-title">{signInTitle}</h2>
           <button type="button" aria-label="Close sign-in" className="sign-in-close"
             onClick={() => signInDialog.current?.close()}>
             <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
@@ -157,15 +157,16 @@ export default function App() {
             </svg>
           </button>
         </div>
-        {!enteringCode && <><p className="hint">Open your saved players and club workspaces.</p>
+        {!hideSignInMethods && <><p className="hint">Open your saved players and club workspaces.</p>
         <a className="sign-in-google" href="/oauth2/authorization/google"
           onClick={rememberGuestRoster}>
             <img src="/brand/google-signin.svg" width="20" height="20" alt="" />
             Continue with Google
           </a></>}
-        {emailCsrf && <>
-          {!enteringCode && <div className="sign-in-divider">or use an email code</div>}
-          <EmailSignIn csrfToken={emailCsrf} onStepChange={setEnteringCode} onSignedIn={() => { rememberGuestRoster(); location.assign('/') }} />
+        {roster.session.csrfToken && <>
+          {!hideSignInMethods && <div className="sign-in-divider">or use your email</div>}
+          <PasswordSignIn csrfToken={roster.session.csrfToken} emailEnabled={!!roster.session.emailSignInEnabled}
+            onStage={(title, hide) => { setSignInTitle(title); setHideSignInMethods(hide) }} onDone={() => { rememberGuestRoster(); location.assign('/') }} />
         </>}
       </dialog>}
       {roster.draft && roster.session?.csrfToken && <ClubWorkspaces

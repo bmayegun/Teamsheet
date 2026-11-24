@@ -3,6 +3,9 @@ package com.biz.teamsheet.roster
 import com.biz.teamsheet.club.ClubStore
 import java.util.UUID
 import org.springframework.web.bind.annotation.RequestParam
+import jakarta.servlet.http.HttpServletRequest
+import com.biz.teamsheet.auth.AccountAuthentication
+import com.biz.teamsheet.auth.RosterAccount
 import com.biz.teamsheet.auth.EmailSignIn
 import com.biz.teamsheet.auth.rosterAccount
 import com.biz.teamsheet.service.TeamService
@@ -27,6 +30,9 @@ data class RosterSession(
     val canLinkEmail: Boolean = false,
     val linkedEmail: String? = null,
     val signInMethod: String? = null,
+    val hasPassword: Boolean = false,
+    val canSetPassword: Boolean = false,
+    val passwordVerificationExpiresAt: Long? = null,
 )
 
 @RestController
@@ -40,15 +46,18 @@ class PublicSessionController {
 @Profile("roster")
 class RosterController(private val store: RosterStore, private val emailSignIn: EmailSignIn, private val clubs: ClubStore) {
     @GetMapping("/api/session")
-    fun session(@AuthenticationPrincipal principal: Any?, csrf: CsrfToken): ResponseEntity<RosterSession> {
+    fun session(@AuthenticationPrincipal principal: Any?, csrf: CsrfToken, request: HttpServletRequest): ResponseEntity<RosterSession> {
         val account = rosterAccount(principal)
-        if (account != null) clubs.updateDisplayName(account.subject, account.displayName)
         val emailEnabled = emailSignIn.enabled
-        val csrfToken = if (account != null || emailEnabled) csrf.token else null
-        val linkedEmail = if (emailEnabled && account != null) emailSignIn.linkedEmail(account.subject) else null
+        val csrfToken = csrf.token
+        val identity = account?.let { emailSignIn.identity(it.subject) }
+        val linkedEmail = identity?.email
         return privateResponse(RosterSession(true, account?.let { clubs.preferredName(it.subject) ?: it.displayName }, csrfToken, emailEnabled,
             emailEnabled && principal is OidcUser && account != null && linkedEmail == null, linkedEmail,
-            when { principal is OidcUser -> "google"; account != null -> "email"; else -> null }))
+            when { principal is OidcUser -> "google"; principal is RosterAccount -> principal.method; else -> null },
+            identity?.hasPassword == true,
+            account != null && AccountAuthentication.recentlyVerified(account.subject, request),
+            account?.let { AccountAuthentication.verificationExpiresAt(it.subject, request) }))
     }
 
     data class DisplayName(val name: String)

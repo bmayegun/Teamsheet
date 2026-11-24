@@ -7,12 +7,7 @@ import org.springframework.context.annotation.Profile
 import org.springframework.http.CacheControl
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.annotation.AuthenticationPrincipal
-import org.springframework.security.core.context.SecurityContextHolder
-import org.springframework.security.oauth2.core.oidc.user.OidcUser
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository
-import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
@@ -24,9 +19,6 @@ class EmailSignInController(private val signIn: EmailSignIn) {
     data class CodeRequest(val email: String, val linking: Boolean = false)
     data class CodeVerification(val challengeId: UUID, val code: String, val linking: Boolean = false)
     data class Challenge(val challengeId: UUID)
-
-    private val contextRepository = HttpSessionSecurityContextRepository()
-    private val csrfRepository = HttpSessionCsrfTokenRepository()
 
     @org.springframework.web.bind.annotation.ExceptionHandler(EmailSendLimit::class)
     internal fun limit(error: EmailSendLimit): ResponseEntity<Map<String, String>> {
@@ -50,21 +42,16 @@ class EmailSignInController(private val signIn: EmailSignIn) {
         val browser = request.getSession(false)?.id ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Request a new code.")
         val subject = signIn.verify(body.challengeId, body.code, browser, account)
         if (!body.linking) {
-            request.changeSessionId()
-            // Publish one fresh token before the browser starts concurrent session reads.
-            csrfRepository.saveToken(csrfRepository.generateToken(request), request, response)
-            val context = SecurityContextHolder.createEmptyContext()
-            context.authentication = UsernamePasswordAuthenticationToken.authenticated(RosterAccount(subject, "Organiser"), null, emptyList())
-            SecurityContextHolder.setContext(context)
-            contextRepository.saveContext(context, request, response)
+            AccountAuthentication.signIn(subject, "email", request, response)
         }
+        AccountAuthentication.emailVerified(subject, request)
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build()
     }
 
     private fun accountForFlow(principal: Any?, linking: Boolean): String? {
         if (!signIn.enabled) throw ResponseStatusException(HttpStatus.NOT_FOUND)
         val account = rosterAccount(principal)
-        if (linking && (principal !is OidcUser || account == null)) throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
+        if (linking && account == null) throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
         if (!linking && account != null) throw ResponseStatusException(HttpStatus.CONFLICT)
         return account?.subject
     }

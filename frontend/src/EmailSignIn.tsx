@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 
-export default function EmailSignIn({ csrfToken, linking = false, onSignedIn, onLinked, onStepChange }: {
+export default function EmailSignIn({ csrfToken, linking = false, onSignedIn, onLinked, onStepChange, initialEmail = '', verificationLabel }: {
+  verificationLabel?: string
+  initialEmail?: string
   csrfToken: string
   onStepChange?: (verifying: boolean) => void
   linking?: boolean
   onLinked?: (email: string) => void
   onSignedIn?: () => void
 }) {
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(initialEmail)
   const [challengeId, setChallengeId] = useState('')
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
@@ -104,14 +106,14 @@ export default function EmailSignIn({ csrfToken, linking = false, onSignedIn, on
           maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, ''))} />
       </label>
       <button className="secondary" type="submit" disabled={busy || code.length !== 6}>
-        {linking ? 'Verify and link' : 'Verify and sign in'}
+        {busy ? 'Verifying…' : verificationLabel ?? (linking ? 'Verify and link' : 'Verify and sign in')}
       </button>
       <button className="text-button justify-self-start" type="button" onClick={() => void submit(true)} disabled={busy || seconds > 0}>
         {seconds ? `Resend in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : 'Resend code'}
       </button>
     </> : <>
       <label>Email address
-        <input ref={emailInput} type="email" autoComplete="email" maxLength={254} value={email} required
+        <input ref={emailInput} autoFocus type="email" autoComplete="email" maxLength={254} value={email} required
           onChange={event => setEmail(event.target.value)} />
       </label>
       <button type="submit" className="secondary" disabled={busy || !email.trim() || seconds > 0}>

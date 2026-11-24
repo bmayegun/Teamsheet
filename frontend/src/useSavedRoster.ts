@@ -8,7 +8,7 @@ export interface RosterDraft {
 }
 
 interface SavedRoster { revision: number; draft: RosterDraft }
-export interface Session { signInMethod?: string; enabled: boolean; name: string | null; csrfToken: string | null; emailSignInEnabled?: boolean; canLinkEmail?: boolean; linkedEmail?: string | null }
+export interface Session { hasPassword?: boolean; canSetPassword?: boolean; passwordVerificationExpiresAt?: number | null; signInMethod?: string; enabled: boolean; name: string | null; csrfToken: string | null; emailSignInEnabled?: boolean; canLinkEmail?: boolean; linkedEmail?: string | null }
 
 function rememberWorkspace(clubId: string | null) {
   try {
