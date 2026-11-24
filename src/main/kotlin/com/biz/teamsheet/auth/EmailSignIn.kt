@@ -43,11 +43,12 @@ class EmailSignIn(
         if (email.length > 254 || !addressPattern.matches(email)) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Enter a valid email address.")
         }
+        val reverifying = account != null && store.identity(account)?.email == email
         val id = UUID.randomUUID()
         val code = random.nextInt(1_000_000).toString().padStart(6, '0')
         store.issue(email, id, browser, account, hash(id, code))
         try {
-            mailer.sendCode(email, code, account != null)
+            mailer.sendCode(email, code, account != null, reverifying)
         } catch (error: IOException) {
             // The provider body can contain request details. Log only the failure type.
             logger.warn("Email delivery could not send a sign-in code ({})", error.javaClass.simpleName)

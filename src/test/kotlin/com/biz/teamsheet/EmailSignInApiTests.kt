@@ -249,6 +249,52 @@ class EmailSignInApiTests {
     }
 
     @Test
+    fun `verified email recovery works after password guessing exhausts the account limit`() {
+        val browser = Browser()
+        browser.session()
+        val sent = stubResend()
+        val email = "${UUID.randomUUID()}@example.test"
+        val issued = browser.post("/api/auth/email/request", mapOf("email" to email))
+        val id = json.readTree(issued.body()).path("challengeId").asString()
+        assertEquals(204, browser.post("/api/auth/email/verify", mapOf("challengeId" to id, "code" to sent.get())).statusCode())
+        browser.session()
+        assertEquals(204, browser.put("/api/account/password", mapOf("password" to "initial password example")).statusCode())
+        browser.session()
+        val attacker = Browser()
+        attacker.session()
+        repeat(10) {
+            assertEquals(401, attacker.post("/api/auth/password", mapOf("email" to email, "password" to "wrong")).statusCode())
+        }
+        assertEquals(429, attacker.post("/api/auth/password", mapOf("email" to email, "password" to "wrong")).statusCode())
+        ageCode(email)
+        val recoveryCode = browser.post("/api/auth/email/request", mapOf("email" to email, "linking" to true))
+        assertEquals(200, recoveryCode.statusCode())
+        val recoveryId = json.readTree(recoveryCode.body()).path("challengeId").asString()
+        assertEquals(204, browser.post("/api/auth/email/verify",
+            mapOf("challengeId" to recoveryId, "code" to sent.get(), "linking" to true)).statusCode())
+        assertEquals(204, browser.put("/api/account/password", mapOf("password" to "a recovered password 123")).statusCode())
+        assertEquals("email", browser.session().path("signInMethod").asString())
+        assertTrue(browser.session().path("hasPassword").asBoolean())
+    }
+
+    @Test
+    fun `member fallback labels do not expose verified email addresses`() {
+        val subject = "privacy-${UUID.randomUUID()}"
+        val email = "private-person-${UUID.randomUUID()}@example.test"
+        val id = UUID.randomUUID()
+        val hash = byteArrayOf(1, 2, 3)
+        codes.issue(email, id, "privacy-browser", subject, hash)
+        assertEquals(EmailVerification.Verified(subject), codes.verify(id, "privacy-browser", subject, hash))
+        val club = clubs.create(subject, "Privacy club")
+        val member = clubs.management(subject, club.id).members.single()
+        assertEquals("Member " + member.id.toString().take(8), member.name)
+        clubs.updateDisplayName(subject, "Chosen Member Name")
+        assertEquals("Chosen Member Name", clubs.management(subject, club.id).members.single().name)
+        clubs.savePreferredName(subject, "Preferred Member Name")
+        assertEquals("Preferred Member Name", clubs.management(subject, club.id).members.single().name)
+    }
+
+    @Test
     fun `password guessing has a persistent limit for unknown addresses too`() {
         val browser = Browser()
         browser.session()
@@ -372,7 +418,7 @@ class EmailSignInApiTests {
         Mockito.doAnswer {
             code.set(it.getArgument<String>(1))
             null
-        }.`when`(resend).sendCode(anyString(), anyString(), anyBoolean())
+        }.`when`(resend).sendCode(anyString(), anyString(), anyBoolean(), anyBoolean())
         return code
     }
 

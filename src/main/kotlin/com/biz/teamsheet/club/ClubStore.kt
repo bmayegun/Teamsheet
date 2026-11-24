@@ -144,10 +144,9 @@ class ClubStore(
         requireMember(connection, subject, clubId)
         val members = connection.prepareStatement("""
             SELECT m.id, COALESCE(n.name, NULLIF(NULLIF(trim(m.display_name), ''), 'Organiser'),
-                NULLIF(split_part(e.email, '@', 1), ''), 'Member ' || left(m.id::text, 8)) AS member_name,
+                'Member ' || left(m.id::text, 8)) AS member_name,
                 m.role, m.account_subject = ?
             FROM club_members m LEFT JOIN account_display_names n ON n.account_subject = m.account_subject
-            LEFT JOIN email_sign_in_identities e ON e.account_subject = m.account_subject
             WHERE m.club_id = ? ORDER BY m.role DESC, member_name, m.id
         """).use {
             it.setString(1, subject)

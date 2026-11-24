@@ -11,10 +11,14 @@ internal object AccountAuthentication {
     private const val EMAIL_VERIFIED_AT = "teamsheet.emailVerifiedAt"
     private const val EMAIL_VERIFIED_SUBJECT = "teamsheet.emailVerifiedSubject"
 
-    fun signIn(subject: String, method: String, request: HttpServletRequest, response: HttpServletResponse) {
+    fun rotateSession(request: HttpServletRequest, response: HttpServletResponse) {
         request.changeSessionId()
         val csrf = HttpSessionCsrfTokenRepository()
         csrf.saveToken(csrf.generateToken(request), request, response)
+    }
+
+    fun signIn(subject: String, method: String, request: HttpServletRequest, response: HttpServletResponse) {
+        rotateSession(request, response)
         val context = SecurityContextHolder.createEmptyContext()
         context.authentication = UsernamePasswordAuthenticationToken.authenticated(
             RosterAccount(subject, "Organiser", method), null, emptyList())

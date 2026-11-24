@@ -33,7 +33,7 @@ class PasswordAuthentication(private val store: EmailSignInStore, private val sa
     internal fun save(subject: String, password: String, currentPassword: String?, verified: Boolean) {
         if (password.length !in 8..128) throw ResponseStatusException(HttpStatus.BAD_REQUEST)
         val email = store.linkedEmail(subject) ?: throw ResponseStatusException(HttpStatus.CONFLICT)
-        reserve(email)
+        if (!verified) reserve(email)
         val credentials = store.credentials(email) ?: throw ResponseStatusException(HttpStatus.CONFLICT)
         if (!verified) {
             if (credentials.hash == null || currentPassword == null || currentPassword.length > 128 ||
@@ -80,7 +80,7 @@ class PasswordAuthenticationController(private val passwords: PasswordAuthentica
             passwords.save(account.subject, body.password, body.currentPassword, verified)
             AccountAuthentication.consumeVerification(request)
         }
-        AccountAuthentication.signIn(account.subject, "password", request, response)
+        AccountAuthentication.rotateSession(request, response)
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build<Void>()
     }
 }

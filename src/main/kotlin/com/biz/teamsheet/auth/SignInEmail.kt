@@ -23,8 +23,12 @@ class SignInEmail(
     private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
 
     @Throws(IOException::class, InterruptedException::class)
-    fun sendCode(email: String, code: String, linking: Boolean) {
-        val action = if (linking) "link email sign-in to your TeamSheet account" else "sign in to TeamSheet"
+    fun sendCode(email: String, code: String, linking: Boolean, reverifying: Boolean = false) {
+        val action = when {
+            reverifying -> "verify your email before updating your TeamSheet password"
+            linking -> "link email sign-in to your TeamSheet account"
+            else -> "sign in to TeamSheet"
+        }
         val text = "Use this code to $action: $code\n\n" +
             "It expires in 10 minutes. If you did not request it, you can ignore this email."
         val message = if (mailpitUrl.isNotBlank()) mapOf(

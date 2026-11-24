@@ -41,6 +41,12 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    inputs.property("authTestDb", providers.environmentVariable("TEAMSHEET_AUTH_TEST_JDBC").isPresent)
+    // A configured run must execute against the supplied database, not reuse another database's results.
+    outputs.upToDateWhen { !providers.environmentVariable("TEAMSHEET_AUTH_TEST_JDBC").isPresent }
+    outputs.doNotCacheIf("Database integration tests use external state") {
+        providers.environmentVariable("TEAMSHEET_AUTH_TEST_JDBC").isPresent
+    }
 }
 
 tasks.bootJar {

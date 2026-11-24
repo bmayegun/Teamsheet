@@ -32,6 +32,12 @@ class SignInEmailTests {
             assertEquals("signin@teamsheet.test", message.path("From").path("Email").asText())
             assertTrue(message.path("Text").asText().contains("sign in to TeamSheet: 012345"))
             assertEquals(null, auth.get())
+            mailer.sendCode("organiser@example.test", "012345", true)
+            assertTrue(json.readTree(captured.get()).path("Text").asString().contains("link email sign-in"))
+            mailer.sendCode("organiser@example.test", "012345", true, true)
+            val verificationText = json.readTree(captured.get()).path("Text").asString()
+            assertTrue(verificationText.contains("verify your email before updating your TeamSheet password"))
+            kotlin.test.assertFalse(verificationText.contains("link email sign-in"))
         } finally {
             server.stop(0)
         }
