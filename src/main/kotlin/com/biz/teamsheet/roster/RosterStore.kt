@@ -1,5 +1,7 @@
 package com.biz.teamsheet.roster
 
+import org.springframework.jdbc.core.simple.JdbcClient
+import org.springframework.transaction.annotation.Transactional
 import com.biz.teamsheet.model.Player
 import org.springframework.context.annotation.Profile
 import org.springframework.stereotype.Repository
@@ -15,11 +17,12 @@ data class SavedRoster(val revision: Int, val draft: RosterDraft)
 
 @Repository
 @Profile("roster")
-@org.springframework.transaction.annotation.Transactional(rollbackFor = [Exception::class])
+@Transactional(rollbackFor = [Exception::class])
 class RosterStore(
-    private val jdbc: org.springframework.jdbc.core.simple.JdbcClient,
+    private val jdbc: JdbcClient,
     private val json: JsonMapper,
 ) {
+    @Transactional(readOnly = true)
     fun read(subject: String): SavedRoster = jdbc.sql("SELECT revision, payload FROM saved_rosters WHERE account_subject = ?")
         .param(subject)
         .query { rows, _ -> SavedRoster(rows.getInt(1), json.readValue(rows.getString(2), RosterDraft::class.java)) }

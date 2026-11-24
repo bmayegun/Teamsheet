@@ -21,6 +21,7 @@ data class InvitationPreview(val clubId: UUID, val name: String, val role: Strin
 @Profile("roster")
 @Transactional(rollbackFor = [Exception::class])
 class ClubStore(private val jdbc: JdbcTemplate) {
+    @Transactional(readOnly = true)
     fun personalName(subject: String): String = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("SELECT name FROM personal_workspace_names WHERE account_subject = ?").use {
             it.setString(1, subject)
@@ -46,6 +47,7 @@ class ClubStore(private val jdbc: JdbcTemplate) {
         })
     }
 
+    @Transactional(readOnly = true)
     fun list(subject: String): List<Club> = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("""
             SELECT c.id, c.name, m.role FROM clubs c JOIN club_members m ON c.id = m.club_id
@@ -79,11 +81,13 @@ class ClubStore(private val jdbc: JdbcTemplate) {
         })
     }
 
+    @Transactional(readOnly = true)
     fun rosterSubject(subject: String, clubId: UUID): String = jdbc.execute(ConnectionCallback { connection ->
         requireMember(connection, subject, clubId)
         "club:$clubId"
     })
 
+    @Transactional(readOnly = true)
     fun preferredName(subject: String): String? = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("SELECT name FROM account_display_names WHERE account_subject = ?").use {
             it.setString(1, subject)
@@ -136,6 +140,7 @@ class ClubStore(private val jdbc: JdbcTemplate) {
         })
     }
 
+    @Transactional(readOnly = true)
     fun management(subject: String, clubId: UUID): ClubManagement = jdbc.execute(ConnectionCallback { connection ->
         requireMember(connection, subject, clubId)
         val members = connection.prepareStatement("""
@@ -203,6 +208,7 @@ class ClubStore(private val jdbc: JdbcTemplate) {
         token
     })
 
+    @Transactional(readOnly = true)
     fun preview(token: String): InvitationPreview = jdbc.execute(ConnectionCallback { connection ->
         val clubId = invitationClub(connection, token)
         connection.prepareStatement("""

@@ -1,5 +1,6 @@
 package com.biz.teamsheet.roster
 
+import org.springframework.transaction.annotation.Transactional
 import com.biz.teamsheet.club.ClubStore
 import java.util.UUID
 import org.springframework.web.bind.annotation.RequestParam
@@ -46,6 +47,7 @@ class PublicSessionController {
 @Profile("roster")
 class RosterController(private val store: RosterStore, private val emailSignIn: EmailSignIn, private val clubs: ClubStore) {
     @GetMapping("/api/session")
+    @Transactional(readOnly = true)
     fun session(@AuthenticationPrincipal principal: Any?, csrf: CsrfToken, request: HttpServletRequest): ResponseEntity<RosterSession> {
         val account = rosterAccount(principal)
         val emailEnabled = emailSignIn.enabled

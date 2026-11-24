@@ -20,6 +20,7 @@ internal sealed interface EmailVerification {
 class EmailSignInStore(private val jdbc: JdbcTemplate) {
     internal data class EmailIdentity(val email: String, val hasPassword: Boolean)
 
+    @Transactional(readOnly = true)
     internal fun identity(subject: String): EmailIdentity? = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("SELECT email, password_hash IS NOT NULL FROM email_sign_in_identities WHERE account_subject = ?").use {
             it.setString(1, subject)
@@ -27,6 +28,7 @@ class EmailSignInStore(private val jdbc: JdbcTemplate) {
         }
     })
 
+    @Transactional(readOnly = true)
     internal fun linkedEmail(subject: String): String? = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("SELECT email FROM email_sign_in_identities WHERE account_subject = ?").use {
             it.setString(1, subject)
@@ -127,6 +129,7 @@ class EmailSignInStore(private val jdbc: JdbcTemplate) {
 
     internal data class Credentials(val subject: String, val hash: String?)
 
+    @Transactional(readOnly = true)
     internal fun credentials(email: String): Credentials? = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("SELECT account_subject, password_hash FROM email_sign_in_identities WHERE email = ?").use {
             it.setString(1, email)

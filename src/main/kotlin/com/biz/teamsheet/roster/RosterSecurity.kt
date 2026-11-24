@@ -7,7 +7,6 @@ import org.springframework.security.web.authentication.SimpleUrlAuthenticationSu
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler
 import org.springframework.web.util.HttpSessionMutexListener
 import org.slf4j.LoggerFactory
-import java.sql.SQLException
 import org.springframework.dao.DataAccessException
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -43,8 +42,6 @@ class RosterSecurity {
             rosterAccount(authentication.principal)?.let { account ->
                 try {
                     clubs.updateDisplayName(account.subject, account.displayName)
-                } catch (error: SQLException) {
-                    logger.warn("Could not refresh member name after Google sign-in ({})", error.javaClass.simpleName)
                 } catch (error: DataAccessException) {
                     logger.warn("Could not refresh member name after Google sign-in ({})", error.javaClass.simpleName)
                 }

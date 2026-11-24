@@ -9,7 +9,6 @@ import com.biz.teamsheet.club.ClubStore
 import com.biz.teamsheet.roster.RosterController
 import com.biz.teamsheet.roster.RosterSecurity
 import com.biz.teamsheet.roster.RosterStore
-import java.sql.SQLException
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
