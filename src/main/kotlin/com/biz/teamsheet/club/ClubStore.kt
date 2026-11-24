@@ -2,14 +2,14 @@ package com.biz.teamsheet.club
 
 import java.security.MessageDigest
 import java.sql.Connection
-import java.sql.DriverManager
 import java.util.UUID
 import java.time.Instant
-import org.springframework.beans.factory.annotation.Value
-import org.springframework.context.annotation.DependsOn
 import org.springframework.context.annotation.Profile
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Repository
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.jdbc.core.ConnectionCallback
+import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.server.ResponseStatusException
 
 data class Club(val id: UUID, val name: String, val role: String)
@@ -19,25 +19,21 @@ data class InvitationPreview(val clubId: UUID, val name: String, val role: Strin
 
 @Repository
 @Profile("roster")
-@DependsOn("rosterStore")
-class ClubStore(
-    @Value("\${teamsheet.roster.jdbc-url}") private val url: String,
-    @Value("\${teamsheet.roster.username}") private val username: String,
-    @Value("\${teamsheet.roster.password}") private val password: String,
-) {
-    fun personalName(subject: String): String = transaction { connection ->
+@Transactional(rollbackFor = [Exception::class])
+class ClubStore(private val jdbc: JdbcTemplate) {
+    fun personalName(subject: String): String = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("SELECT name FROM personal_workspace_names WHERE account_subject = ?").use {
             it.setString(1, subject)
             it.executeQuery().use { rows -> if (rows.next()) rows.getString(1) else "My players" }
         }
-    }
+    })
 
     fun renamePersonal(subject: String, name: String): String {
         val trimmed = name.trim()
         if (trimmed.isEmpty() || trimmed.length > 100) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Use a workspace name between 1 and 100 characters.")
         }
-        return transaction { connection ->
+        return jdbc.execute(ConnectionCallback { connection ->
             connection.prepareStatement("""
                 INSERT INTO personal_workspace_names (account_subject, name) VALUES (?, ?)
                 ON CONFLICT (account_subject) DO UPDATE SET name = excluded.name
@@ -47,10 +43,10 @@ class ClubStore(
                 it.executeUpdate()
             }
             trimmed
-        }
+        })
     }
 
-    fun list(subject: String): List<Club> = transaction { connection ->
+    fun list(subject: String): List<Club> = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("""
             SELECT c.id, c.name, m.role FROM clubs c JOIN club_members m ON c.id = m.club_id
             WHERE m.account_subject = ? ORDER BY c.name, c.id
@@ -60,14 +56,14 @@ class ClubStore(
                 while (rows.next()) add(Club(rows.getObject(1, UUID::class.java), rows.getString(2), rows.getString(3)))
             } }
         }
-    }
+    })
 
     fun create(subject: String, name: String): Club {
         val trimmed = name.trim()
         if (trimmed.isEmpty() || trimmed.length > 100) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Use a club name between 1 and 100 characters.")
         }
-        return transaction { connection ->
+        return jdbc.execute(ConnectionCallback { connection ->
             val id = UUID.randomUUID()
             connection.prepareStatement("INSERT INTO clubs (id, name) VALUES (?, ?)").use {
                 it.setObject(1, id)
@@ -80,25 +76,25 @@ class ClubStore(
                 it.executeUpdate()
             }
             Club(id, trimmed, "OWNER")
-        }
+        })
     }
 
-    fun rosterSubject(subject: String, clubId: UUID): String = transaction { connection ->
+    fun rosterSubject(subject: String, clubId: UUID): String = jdbc.execute(ConnectionCallback { connection ->
         requireMember(connection, subject, clubId)
         "club:$clubId"
-    }
+    })
 
-    fun preferredName(subject: String): String? = transaction { connection ->
+    fun preferredName(subject: String): String? = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("SELECT name FROM account_display_names WHERE account_subject = ?").use {
             it.setString(1, subject)
             it.executeQuery().use { rows -> if (rows.next()) rows.getString(1) else null }
         }
-    }
+    })
 
     fun savePreferredName(subject: String, input: String): String {
         val name = input.trim()
         if (name.isEmpty() || name.length > 100) throw ResponseStatusException(HttpStatus.BAD_REQUEST)
-        return transaction { connection ->
+        return jdbc.execute(ConnectionCallback { connection ->
             connection.prepareStatement("""
                 INSERT INTO account_display_names (account_subject, name) VALUES (?, ?)
                 ON CONFLICT (account_subject) DO UPDATE SET name = excluded.name
@@ -108,19 +104,19 @@ class ClubStore(
                 it.executeUpdate()
             }
             name
-        }
+        })
     }
 
     fun updateDisplayName(subject: String, name: String) {
         if (name == "Organiser" || name.isBlank()) return
-        transaction { connection ->
+        jdbc.execute(ConnectionCallback { connection ->
             connection.prepareStatement("UPDATE club_members SET display_name = ? WHERE account_subject = ? AND display_name <> ?").use {
                 it.setString(1, name.take(200))
                 it.setString(2, subject)
                 it.setString(3, name.take(200))
                 it.executeUpdate()
             }
-        }
+        })
     }
 
     fun rename(subject: String, clubId: UUID, name: String): Club {
@@ -128,7 +124,7 @@ class ClubStore(
         if (trimmed.isEmpty() || trimmed.length > 100) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Use a club name between 1 and 100 characters.")
         }
-        return transaction { connection ->
+        return jdbc.execute(ConnectionCallback { connection ->
             lockClub(connection, clubId)
             requireOwner(connection, subject, clubId)
             connection.prepareStatement("UPDATE clubs SET name = ? WHERE id = ?").use {
@@ -137,10 +133,10 @@ class ClubStore(
                 it.executeUpdate()
             }
             Club(clubId, trimmed, "OWNER")
-        }
+        })
     }
 
-    fun management(subject: String, clubId: UUID): ClubManagement = transaction { connection ->
+    fun management(subject: String, clubId: UUID): ClubManagement = jdbc.execute(ConnectionCallback { connection ->
         requireMember(connection, subject, clubId)
         val members = connection.prepareStatement("""
             SELECT m.id, COALESCE(n.name, NULLIF(NULLIF(trim(m.display_name), ''), 'Organiser'),
@@ -162,9 +158,9 @@ class ClubStore(
             it.executeQuery().use { rows -> rows.next(); rows.getTimestamp(1)?.toInstant() }
         }
         ClubManagement(members, expires)
-    }
+    })
 
-    fun removeMember(subject: String, clubId: UUID, memberId: UUID) = transaction { connection ->
+    fun removeMember(subject: String, clubId: UUID, memberId: UUID) = jdbc.execute(ConnectionCallback { connection ->
         lockClub(connection, clubId)
         requireOwner(connection, subject, clubId)
         val removedSubject = connection.prepareStatement("""
@@ -179,18 +175,18 @@ class ClubStore(
             it.setString(2, removedSubject)
             it.executeUpdate()
         }
-    }
+    })
 
-    fun revokeInvitations(subject: String, clubId: UUID) = transaction { connection ->
+    fun revokeInvitations(subject: String, clubId: UUID) = jdbc.execute(ConnectionCallback { connection ->
         lockClub(connection, clubId)
         requireOwner(connection, subject, clubId)
         connection.prepareStatement("DELETE FROM club_invitations WHERE club_id = ? AND accepted_by IS NULL").use {
             it.setObject(1, clubId)
             it.executeUpdate()
         }
-    }
+    })
 
-    fun invite(subject: String, clubId: UUID): String = transaction { connection ->
+    fun invite(subject: String, clubId: UUID): String = jdbc.execute(ConnectionCallback { connection ->
         lockClub(connection, clubId)
         requireOwner(connection, subject, clubId)
         connection.prepareStatement("DELETE FROM club_invitations WHERE club_id = ? AND accepted_by IS NULL").use {
@@ -205,9 +201,9 @@ class ClubStore(
             it.executeUpdate()
         }
         token
-    }
+    })
 
-    fun preview(token: String): InvitationPreview = transaction { connection ->
+    fun preview(token: String): InvitationPreview = jdbc.execute(ConnectionCallback { connection ->
         val clubId = invitationClub(connection, token)
         connection.prepareStatement("""
             SELECT c.name FROM club_invitations i JOIN clubs c ON c.id = i.club_id
@@ -219,9 +215,9 @@ class ClubStore(
                 InvitationPreview(clubId, rows.getString(1))
             }
         }
-    }
+    })
 
-    fun accept(subject: String, token: String): Club = transaction { connection ->
+    fun accept(subject: String, token: String): Club = jdbc.execute(ConnectionCallback { connection ->
         val clubId = invitationClub(connection, token)
         lockClub(connection, clubId)
         val accepted = connection.prepareStatement("""
@@ -258,9 +254,9 @@ class ClubStore(
                 Club(clubId, rows.getString(1), requireMember(connection, subject, clubId))
             }
         }
-    }
+    })
 
-    fun <T> withRosterAccess(subject: String, clubId: UUID, action: (String) -> T): T = transaction { connection ->
+    fun <T> withRosterAccess(subject: String, clubId: UUID, action: (String) -> T): T = jdbc.execute(ConnectionCallback { connection ->
         // Hold membership through the roster operation so removal waits for in-flight saves.
         connection.prepareStatement("SELECT role FROM club_members WHERE club_id = ? AND account_subject = ? FOR SHARE").use {
             it.setObject(1, clubId)
@@ -270,7 +266,7 @@ class ClubStore(
             }
         }
         action("club:$clubId")
-    }
+    })
 
     private fun invitationClub(connection: Connection, token: String): UUID {
         if (token.length != 72) throw invalidInvitation()
@@ -310,14 +306,4 @@ class ClubStore(
 
     private fun invalidInvitation() = ResponseStatusException(HttpStatus.BAD_REQUEST, "This invitation is invalid, expired, or already used.")
 
-    private fun <T> transaction(action: (Connection) -> T): T =
-        DriverManager.getConnection(url, username, password).use { connection ->
-            connection.autoCommit = false
-            try {
-                action(connection).also { connection.commit() }
-            } catch (error: Exception) {
-                connection.rollback()
-                throw error
-            }
-        }
 }

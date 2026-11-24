@@ -78,6 +78,71 @@ class EmailSignInApiTests {
         private fun send(request: HttpRequest) = client.send(request, HttpResponse.BodyHandlers.ofString())
     }
 
+    @Autowired private lateinit var dataSource: javax.sql.DataSource
+
+    @Test
+    fun `member removal waits for a pooled roster save to finish`() {
+        val owner = "owner-${UUID.randomUUID()}"
+        val member = "member-${UUID.randomUUID()}"
+        val club = clubs.create(owner, "Locked club")
+        clubs.accept(member, clubs.invite(owner, club.id))
+        val memberId = clubs.management(owner, club.id).members.single { !it.isYou }.id
+        val locked = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val removing = java.util.concurrent.CountDownLatch(1)
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
+        try {
+            val save = executor.submit<Boolean> {
+                clubs.withRosterAccess(member, club.id) { subject ->
+                    locked.countDown()
+                    check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                    rosters.save(subject, SavedRoster(0, RosterDraft()))
+                }
+            }
+            assertTrue(locked.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val removal = executor.submit {
+                removing.countDown()
+                clubs.removeMember(owner, club.id, memberId)
+            }
+            assertTrue(removing.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            kotlin.test.assertFailsWith<java.util.concurrent.TimeoutException> {
+                removal.get(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+            }
+            release.countDown()
+            assertTrue(save.get(5, java.util.concurrent.TimeUnit.SECONDS))
+            removal.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals(1, rosters.read("club:${club.id}").revision)
+            kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> {
+                clubs.withRosterAccess(member, club.id) { rosters.read(it) }
+            }
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `pooled roster operations share a transaction and roll back together`() {
+        val pool = dataSource as com.zaxxer.hikari.HikariDataSource
+        val owner = "pooled-${UUID.randomUUID()}"
+        val club = clubs.create(owner, "Pooled club")
+        val subject = "club:${club.id}"
+        kotlin.test.assertFailsWith<IllegalStateException> {
+            clubs.withRosterAccess(owner, club.id) {
+                assertTrue(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive())
+                assertTrue(rosters.save(subject, SavedRoster(0, RosterDraft(players = listOf(Player("p", "Rolled back", 3))))))
+                assertEquals(1, pool.hikariPoolMXBean.activeConnections)
+                throw IllegalStateException("rollback the entire operation")
+            }
+        }
+        assertEquals(0, rosters.read(subject).revision)
+        assertTrue(rosters.read(subject).draft.players.isEmpty())
+        kotlin.test.assertNull(clubs.withRosterAccess(owner, club.id) { null })
+        repeat(20) { rosters.read(subject) }
+        assertEquals(0, pool.hikariPoolMXBean.activeConnections)
+        assertTrue(pool.hikariPoolMXBean.totalConnections <= pool.maximumPoolSize)
+    }
+
     @Test
     fun `email authentication opens the linked legacy roster and rotates the session`() {
         val subject = "test-google-${UUID.randomUUID()}"

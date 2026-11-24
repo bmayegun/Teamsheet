@@ -27,6 +27,7 @@ import org.springframework.web.server.ResponseStatusException
 
 @ActiveProfiles("roster")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = [
+    "spring.autoconfigure.exclude=org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
     "GOOGLE_CLIENT_ID=test-client",
     "GOOGLE_CLIENT_SECRET=test-secret",
     "GOOGLE_REDIRECT_URI=http://localhost/login/oauth2/code/google",
