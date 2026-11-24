@@ -3,7 +3,9 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 const backend = 'http://localhost:8080'
-const proxy = { '/api': backend, '/oauth2': backend, '/login': backend, '/logout': backend }
+const proxy = Object.fromEntries(
+  ['/api', '/oauth2', '/login', '/logout'].map(path => [path, { target: backend, autoRewrite: true }]),
+)
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

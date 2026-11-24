@@ -1,3 +1,6 @@
+import AccountMenu from './AccountMenu'
+import ClubWorkspaces from './ClubWorkspaces'
+import EmailSignIn from './EmailSignIn'
 import { useRef, useState, type FormEvent } from 'react'
 import PlayerEditor from './PlayerEditor'
 import ShareDraw from './ShareDraw'
@@ -18,6 +21,8 @@ export default function App() {
     catch { return [] }
   })
   const roster = useSavedRoster()
+  const [enteringCode, setEnteringCode] = useState(false)
+  const signInDialog = useRef<HTMLDialogElement>(null)
   const matchPlayers = roster.draft ? [
     ...roster.draft.players.filter(player => roster.draft?.attendingIds.includes(player.id)),
     ...roster.draft.guests,
@@ -115,18 +120,24 @@ export default function App() {
     }
   }
 
+  function rememberGuestRoster() {
+    try {
+      sessionStorage.setItem('teamsheet-guest-roster', JSON.stringify(players))
+      const invitation = new URLSearchParams(location.hash.slice(1)).get('club-invite')
+      if (invitation) sessionStorage.setItem('teamsheet-club-invite', invitation)
+    }
+    catch { /* Storage can be disabled in the browser. */ }
+  }
+
+  const emailCsrf = roster.session?.emailSignInEnabled ? roster.session.csrfToken : null
+
   return <>
     <header className="masthead">
       <div className="page-width brand">
         <span className="brand-icon" aria-hidden="true">▥</span>TeamSheet
         {roster.session?.enabled && <div className="account">
-          {roster.session.name ? <form action="/logout" method="post">
-            <input type="hidden" name="_csrf" value={roster.session.csrfToken ?? ''} />
-            <button type="submit">Sign out</button>
-          </form> : <a href="/oauth2/authorization/google" onClick={() => {
-            try { sessionStorage.setItem('teamsheet-guest-roster', JSON.stringify(players)) }
-            catch { /* Storage can be disabled in the browser. */ }
-          }}>Sign in with Google</a>}
+          {roster.session.name ? <AccountMenu session={roster.session} /> : <button type="button" aria-haspopup="dialog" aria-controls="sign-in-panel"
+            onClick={() => signInDialog.current?.showModal()}>Sign in</button>}
         </div>}
       </div>
     </header>
@@ -135,11 +146,40 @@ export default function App() {
         <h1>Build balanced teams.</h1>
         <p>Add your players, choose a game format, and generate teams for your next match.</p>
       </div>}
+      {roster.session?.enabled && !roster.session.name && <dialog ref={signInDialog}
+        id="sign-in-panel" className="sign-in-dialog" aria-labelledby="sign-in-title">
+        <div className="flex items-start justify-between gap-4">
+          <h2 id="sign-in-title">{enteringCode ? 'Enter your sign-in code' : 'Sign in to TeamSheet'}</h2>
+          <button type="button" aria-label="Close sign-in" className="sign-in-close"
+            onClick={() => signInDialog.current?.close()}>
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="m5 5 10 10M15 5 5 15" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        {!enteringCode && <><p className="hint">Open your saved players and club workspaces.</p>
+        <a className="sign-in-google" href="/oauth2/authorization/google"
+          onClick={rememberGuestRoster}>
+            <img src="/brand/google-signin.svg" width="20" height="20" alt="" />
+            Continue with Google
+          </a></>}
+        {emailCsrf && <>
+          {!enteringCode && <div className="sign-in-divider">or use an email code</div>}
+          <EmailSignIn csrfToken={emailCsrf} onStepChange={setEnteringCode} onSignedIn={() => { rememberGuestRoster(); location.assign('/') }} />
+        </>}
+      </dialog>}
+      {roster.draft && roster.session?.csrfToken && <ClubWorkspaces
+        csrfToken={roster.session.csrfToken} clubId={roster.clubId} dirty={roster.dirty} busy={roster.busy}
+        onSelect={async clubId => {
+          const changed = await roster.selectWorkspace(clubId)
+          if (changed) clearResult()
+          return changed
+        }} />}
       {new URLSearchParams(location.search).has('signInFailed') && <p className="error" role="alert">Google sign-in failed. Try again.</p>}
       {!roster.session && roster.message && <p className="error" role="alert">{roster.message}</p>}
       <div className={roster.session?.name ? "workspace match-workspace" : "workspace"}>
         <section className="card" aria-labelledby="roster-heading">
-          {roster.draft ? <SavedPlayers draft={roster.draft} busy={roster.busy} existingPlayers={players}
+          {roster.draft ? <SavedPlayers key={roster.clubId ?? 'personal'} draft={roster.draft} busy={roster.busy} existingPlayers={players}
             onChange={draft => { clearResult(); roster.setDraft(draft) }}
             onAdopt={() => {
               const draft = roster.draft!
