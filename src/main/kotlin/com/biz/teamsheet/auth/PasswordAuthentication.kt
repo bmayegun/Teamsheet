@@ -77,6 +77,9 @@ class PasswordAuthenticationController(private val passwords: PasswordAuthentica
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).cacheControl(CacheControl.noStore())
                     .body(mapOf("code" to "password_verification_required"))
             }
+            if (verified && !AccountAuthentication.reserveVerifiedPasswordSave(request)) {
+                response.setHeader("Password-Verification-Expired", "true")
+            }
             passwords.save(account.subject, body.password, body.currentPassword, verified)
             AccountAuthentication.consumeVerification(request)
         }

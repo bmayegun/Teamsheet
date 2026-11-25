@@ -9,6 +9,7 @@ import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository
 
 internal object AccountAuthentication {
     private const val EMAIL_VERIFIED_AT = "teamsheet.emailVerifiedAt"
+    private const val PASSWORD_SAVE_ATTEMPTS = "teamsheet.verifiedPasswordSaveAttempts"
     private const val EMAIL_VERIFIED_SUBJECT = "teamsheet.emailVerifiedSubject"
 
     fun rotateSession(request: HttpServletRequest, response: HttpServletResponse) {
@@ -27,6 +28,7 @@ internal object AccountAuthentication {
     }
 
     fun emailVerified(subject: String, request: HttpServletRequest) {
+        request.session.setAttribute(PASSWORD_SAVE_ATTEMPTS, 0)
         request.session.setAttribute(EMAIL_VERIFIED_SUBJECT, subject)
         request.session.setAttribute(EMAIL_VERIFIED_AT, System.currentTimeMillis())
     }
@@ -41,7 +43,18 @@ internal object AccountAuthentication {
     fun recentlyVerified(subject: String, request: HttpServletRequest): Boolean =
         verificationExpiresAt(subject, request) != null
 
+    fun reserveVerifiedPasswordSave(request: HttpServletRequest): Boolean {
+        val attempts = (request.session.getAttribute(PASSWORD_SAVE_ATTEMPTS) as? Int ?: 0) + 1
+        request.session.setAttribute(PASSWORD_SAVE_ATTEMPTS, attempts)
+        if (attempts >= 3) {
+            consumeVerification(request)
+            return false
+        }
+        return true
+    }
+
     fun consumeVerification(request: HttpServletRequest) {
+        request.session.removeAttribute(PASSWORD_SAVE_ATTEMPTS)
         request.session.removeAttribute(EMAIL_VERIFIED_AT)
         request.session.removeAttribute(EMAIL_VERIFIED_SUBJECT)
     }

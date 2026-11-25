@@ -1,7 +1,8 @@
 package com.biz.teamsheet
 
-import com.biz.teamsheet.club.ClubStore
+import com.biz.teamsheet.auth.AuthenticationNetworkLimits
 import com.biz.teamsheet.auth.EmailSignInStore
+import com.biz.teamsheet.club.ClubStore
 import com.biz.teamsheet.model.Player
 import com.biz.teamsheet.roster.RosterController
 import com.biz.teamsheet.roster.RosterDraft
@@ -20,7 +21,9 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.http.HttpStatus
+import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.security.oauth2.core.oidc.user.OidcUser
+import org.springframework.security.web.csrf.DefaultCsrfToken
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.web.server.ResponseStatusException
@@ -45,6 +48,9 @@ class RosterApiTests {
     @MockitoBean
     private lateinit var clubs: ClubStore
 
+    @MockitoBean
+    private lateinit var networkLimits: AuthenticationNetworkLimits
+
     @Autowired
     private lateinit var controller: RosterController
 
@@ -54,8 +60,8 @@ class RosterApiTests {
         Mockito.`when`(principal.subject).thenReturn("read-only-session")
         Mockito.`when`(principal.fullName).thenReturn("Google Name")
         Mockito.clearInvocations(clubs)
-        val csrf = org.springframework.security.web.csrf.DefaultCsrfToken("X-CSRF-TOKEN", "_csrf", "test-token")
-        val request = org.springframework.mock.web.MockHttpServletRequest()
+        val csrf = DefaultCsrfToken("X-CSRF-TOKEN", "_csrf", "test-token")
+        val request = MockHttpServletRequest()
         repeat(2) {
             assertEquals("Google Name", controller.session(principal, csrf, request).body?.name)
         }

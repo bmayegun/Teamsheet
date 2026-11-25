@@ -76,6 +76,10 @@ export default function PasswordEditor({ csrfToken, requireCurrent = false, onSa
         headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': account.csrfToken ?? csrfToken },
         body: JSON.stringify({ password, currentPassword: needsCurrent ? currentPassword : undefined }),
       })
+      if (response.headers.get('Password-Verification-Expired') === 'true') {
+        setAccount(current => current && { ...current, passwordVerificationExpiresAt: Date.now() - 1 })
+        setUsingEmailProof(true)
+      }
       if (!response.ok) {
         if (response.status === 429) setError('Too many attempts. Try again in 15 minutes.')
         else if (response.status === 403) {

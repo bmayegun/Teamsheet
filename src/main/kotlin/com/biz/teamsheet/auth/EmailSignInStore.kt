@@ -151,7 +151,7 @@ class EmailSignInStore(private val jdbc: JdbcTemplate) {
 
     internal fun reservePasswordAttempt(email: String): Boolean = jdbc.execute(ConnectionCallback { connection ->
         val key = MessageDigest.getInstance("SHA-256").digest(email.toByteArray()).joinToString("") { "%02x".format(it) }
-        for ((bucket, limit) in listOf("global" to 500, key to 10)) {
+        for ((bucket, limit) in listOf(key to 10)) {
             val reserved = connection.prepareStatement("""
                 INSERT INTO password_sign_in_limits (bucket) VALUES (?)
                 ON CONFLICT (bucket) DO UPDATE SET
