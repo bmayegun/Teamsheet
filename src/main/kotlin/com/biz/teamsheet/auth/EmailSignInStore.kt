@@ -127,27 +127,33 @@ class EmailSignInStore(private val jdbc: JdbcTemplate) {
             else EmailVerification.Verified(subject)
         })
 
-    internal data class Credentials(val subject: String, val hash: String?)
+    internal data class Credentials(val subject: String, val hash: String?, val version: Long)
 
     @Transactional(readOnly = true)
     internal fun credentials(email: String): Credentials? = jdbc.execute(ConnectionCallback { connection ->
-        connection.prepareStatement("SELECT account_subject, password_hash FROM email_sign_in_identities WHERE email = ?").use {
+        connection.prepareStatement("SELECT account_subject, password_hash, credentials_version FROM email_sign_in_identities WHERE email = ?").use {
             it.setString(1, email)
-            it.executeQuery().use { rows -> if (rows.next()) Credentials(rows.getString(1), rows.getString(2)) else null }
+            it.executeQuery().use { rows -> if (rows.next()) Credentials(rows.getString(1), rows.getString(2), rows.getLong(3)) else null }
         }
     })
 
-    internal fun savePassword(subject: String, previousHash: String?, hash: String): Boolean = jdbc.execute(ConnectionCallback { connection ->
+    internal fun savePassword(subject: String, previousHash: String?, hash: String, version: Long): Boolean = jdbc.execute(ConnectionCallback { connection ->
         connection.prepareStatement("""
-            UPDATE email_sign_in_identities SET password_hash = ?
-            WHERE account_subject = ? AND password_hash IS NOT DISTINCT FROM ?
+            UPDATE email_sign_in_identities SET password_hash = ?, credentials_version = credentials_version + 1
+            WHERE account_subject = ? AND password_hash IS NOT DISTINCT FROM ? AND credentials_version = ?
         """).use {
             it.setString(1, hash)
             it.setString(2, subject)
             it.setString(3, previousHash)
+            it.setLong(4, version)
             it.executeUpdate() == 1
         }
     })
+
+    @Transactional(readOnly = true)
+    internal fun credentialsVersion(subject: String): Long =
+        jdbc.query("SELECT credentials_version FROM email_sign_in_identities WHERE account_subject = ?",
+            { rows, _ -> rows.getLong(1) }, subject).singleOrNull() ?: 0L
 
     internal fun reservePasswordAttempt(email: String): Boolean = jdbc.execute(ConnectionCallback { connection ->
         val key = MessageDigest.getInstance("SHA-256").digest(email.toByteArray()).joinToString("") { "%02x".format(it) }

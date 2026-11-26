@@ -15,6 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertSame
+import org.springframework.dao.DataAccessResourceFailureException
 import org.mockito.Mockito
 import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.mock.web.MockHttpServletResponse
@@ -74,11 +75,11 @@ class PasswordAccountPreservationTests {
     @Test
     fun `Google redirect continues when updating the cosmetic member name fails`() {
         val clubs = Mockito.mock(ClubStore::class.java)
-        Mockito.doAnswer { throw org.springframework.dao.DataAccessResourceFailureException("test unavailable database") }.`when`(clubs)
+        Mockito.doAnswer { throw DataAccessResourceFailureException("test unavailable database") }.`when`(clubs)
             .updateDisplayName("google-account", "Google Profile Name")
         val request = MockHttpServletRequest()
         val response = MockHttpServletResponse()
-        RosterSecurity().googleSuccessHandler(clubs).onAuthenticationSuccess(
+        RosterSecurity().googleSuccessHandler(clubs, Mockito.mock(EmailSignInStore::class.java)).onAuthenticationSuccess(
             request, response, OAuth2AuthenticationToken(googleUser(), emptyList(), "google"),
         )
         assertEquals(302, response.status)
