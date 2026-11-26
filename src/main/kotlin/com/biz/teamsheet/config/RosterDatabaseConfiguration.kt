@@ -3,6 +3,7 @@ package com.biz.teamsheet.config
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import org.springframework.boot.flyway.autoconfigure.FlywayConfigurationCustomizer
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
@@ -12,6 +13,12 @@ import java.net.URI
 
 @Configuration(proxyBeanMethods = false)
 @Profile("roster")
+@ConditionalOnProperty(
+    prefix = "teamsheet.roster.database",
+    name = ["enabled"],
+    havingValue = "true",
+    matchIfMissing = true,
+)
 class RosterDatabaseConfiguration {
     @Bean
     @Primary
