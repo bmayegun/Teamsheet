@@ -47,3 +47,5 @@ out/
 /.impeccable/
 /.env
 /specs.md
+.neon
+node_modules/
