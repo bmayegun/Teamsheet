@@ -50,7 +50,12 @@ export default function EmailSignIn({ csrfToken, linking = false, onSignedIn, on
       if (!response.ok) {
         if (response.status === 429) {
           const details = await response.json().catch(() => ({}))
-          if (details.limit === 'daily') setError('Daily email limit reached. Try again after midnight UTC.')
+          if (details.limit === 'network_daily') setError('Daily email limit for this network reached. Try again tomorrow.')
+          else if (details.limit === 'network') {
+            waitForSend(Number(response.headers.get('Retry-After')) || 900)
+            setError('Too many code requests from this network. Please wait before trying again.')
+          }
+          else if (details.limit === 'daily') setError('Daily email limit reached. Try again after midnight UTC.')
           else {
             waitForSend(Number(response.headers.get('Retry-After')) || 60)
             setError('A code was requested recently. Wait before sending another.')

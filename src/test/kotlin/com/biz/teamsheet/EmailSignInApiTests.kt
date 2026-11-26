@@ -1,23 +1,39 @@
 package com.biz.teamsheet
 
-import com.biz.teamsheet.club.ClubStore
-import com.biz.teamsheet.auth.SignInEmail
+import com.biz.teamsheet.auth.AuthenticationNetworkLimits
+import com.biz.teamsheet.auth.EmailSendLimit
 import com.biz.teamsheet.auth.EmailSignInStore
 import com.biz.teamsheet.auth.EmailVerification
+import com.biz.teamsheet.auth.NetworkLimit
+import com.biz.teamsheet.auth.PasswordSafety
+import com.biz.teamsheet.auth.SignInEmail
+import com.biz.teamsheet.club.ClubStore
 import com.biz.teamsheet.model.Player
 import com.biz.teamsheet.roster.RosterDraft
 import com.biz.teamsheet.roster.RosterStore
 import com.biz.teamsheet.roster.SavedRoster
+import com.zaxxer.hikari.HikariDataSource
 import java.net.CookieManager
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.security.MessageDigest
+import java.sql.DriverManager
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import javax.sql.DataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
 import org.mockito.ArgumentMatchers.anyBoolean
@@ -26,15 +42,19 @@ import org.mockito.Mockito
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.http.HttpStatus
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.context.bean.override.mockito.MockitoBean
+import org.springframework.transaction.support.TransactionSynchronizationManager
+import org.springframework.web.server.ResponseStatusException
 import tools.jackson.databind.json.JsonMapper
 
 @EnabledIfEnvironmentVariable(named = "TEAMSHEET_AUTH_TEST_JDBC", matches = ".+")
 @ActiveProfiles("roster")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = [
+    "AUTH_TRUSTED_PROXY_CIDRS=127.0.0.1/32",
     "GOOGLE_CLIENT_ID=test-client",
     "GOOGLE_CLIENT_SECRET=test-secret",
     "GOOGLE_REDIRECT_URI=http://localhost/login/oauth2/code/google",
@@ -43,14 +63,15 @@ import tools.jackson.databind.json.JsonMapper
 ])
 class EmailSignInApiTests {
     @LocalServerPort private var port = 0
-    @MockitoBean private lateinit var passwordSafety: com.biz.teamsheet.auth.PasswordSafety
+    @MockitoBean private lateinit var passwordSafety: PasswordSafety
     @MockitoBean private lateinit var resend: SignInEmail
     @Autowired private lateinit var json: JsonMapper
     @Autowired private lateinit var codes: EmailSignInStore
     @Autowired private lateinit var rosters: RosterStore
     @Autowired private lateinit var clubs: ClubStore
+    @Autowired private lateinit var networkLimits: AuthenticationNetworkLimits
 
-    private inner class Browser {
+    private inner class Browser(val address: String = "198.18.0.${browserAddresses.incrementAndGet()}") {
         private val cookies = CookieManager()
         private val client = HttpClient.newBuilder().cookieHandler(cookies).build()
         private var csrf: String? = null
@@ -74,11 +95,98 @@ class EmailSignInApiTests {
             return send(builder.POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build())
         }
 
-        private fun request(path: String) = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port$path"))
+        private fun request(path: String) = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$port$path")).header("X-Forwarded-For", address)
         private fun send(request: HttpRequest) = client.send(request, HttpResponse.BodyHandlers.ofString())
     }
 
-    @Autowired private lateinit var dataSource: javax.sql.DataSource
+    @Autowired private lateinit var dataSource: DataSource
+
+    @Test
+    fun `network quotas isolate clients and cannot be bypassed by changing email addresses`() {
+        val address = UUID.randomUUID().toString()
+        repeat(10) { networkLimits.check("email-send", address) }
+        assertFailsWith<NetworkLimit> { networkLimits.check("email-send", address) }
+        networkLimits.check("email-send", "different-$address")
+        repeat(60) { networkLimits.check("password-login", address) }
+        assertFailsWith<NetworkLimit> { networkLimits.check("password-login", address) }
+        networkLimits.check("password-login", "different-$address")
+    }
+
+    @Test
+    fun `network email limits are atomic and daily budget survives short window resets`() {
+        val address = UUID.randomUUID().toString()
+        val requests = List(20) {
+            CompletableFuture.supplyAsync {
+                try {
+                    networkLimits.check("email-send", address)
+                    true
+                } catch (_: NetworkLimit) {
+                    false
+                }
+            }
+        }
+        assertEquals(10, requests.count { it.join() })
+        val key = MessageDigest.getInstance("SHA-256").digest(address.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        fun expire(action: String) {
+            dataSource.connection.use { connection ->
+                connection.prepareStatement("UPDATE authentication_network_limits SET expires_at = now() - interval '1 second' WHERE bucket = ?").use {
+                    it.setString(1, "$action:$key")
+                    assertEquals(1, it.executeUpdate())
+                }
+            }
+        }
+        repeat(4) {
+            expire("email-send")
+            repeat(10) { networkLimits.check("email-send", address) }
+        }
+        expire("email-send")
+        val daily = assertFailsWith<NetworkLimit> { networkLimits.check("email-send", address) }
+        assertTrue(daily.daily)
+        assertTrue(daily.waitSeconds in 1..86400)
+        // Rejecting the daily budget must roll back the short-window reservation too.
+        expire("email-send-daily")
+        repeat(10) { networkLimits.check("email-send", address) }
+        assertTrue(!assertFailsWith<NetworkLimit> { networkLimits.check("email-send", address) }.daily)
+    }
+
+    @Test
+    fun `network password limit is enforced by the HTTP filter`() {
+        val browser = Browser()
+        browser.session()
+        val address = "198.18.0.250"
+        repeat(60) { networkLimits.check("password-login", address) }
+        val blocked = Browser(address)
+        blocked.session()
+        val result = blocked.post("/api/auth/password", mapOf("email" to "${UUID.randomUUID()}@example.test", "password" to "wrong"))
+        assertEquals(429, result.statusCode())
+        assertEquals("authentication_network_limit", json.readTree(result.body()).path("code").asString())
+        assertTrue(result.headers().firstValue("Retry-After").isPresent)
+    }
+
+    @Test
+    fun `verified recovery caps rejected password checks and requires fresh proof`() {
+        val browser = Browser()
+        browser.session()
+        val sent = stubResend()
+        val email = "${UUID.randomUUID()}@example.test"
+        val challenge = browser.post("/api/auth/email/request", mapOf("email" to email))
+        val id = json.readTree(challenge.body()).path("challengeId").asString()
+        assertEquals(204, browser.post("/api/auth/email/verify", mapOf("challengeId" to id, "code" to sent.get())).statusCode())
+        browser.session()
+        val breached = "a breached password example"
+        Mockito.doThrow(ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY))
+            .`when`(passwordSafety).check(breached)
+        repeat(3) { assertEquals(422, browser.put("/api/account/password", mapOf("password" to breached)).statusCode()) }
+        assertEquals(403, browser.put("/api/account/password", mapOf("password" to breached)).statusCode())
+        Mockito.verify(passwordSafety, Mockito.times(3)).check(breached)
+        assertTrue(browser.session().path("passwordVerificationExpiresAt").isNull)
+        ageCode(email)
+        val again = browser.post("/api/auth/email/request", mapOf("email" to email, "linking" to true))
+        val nextId = json.readTree(again.body()).path("challengeId").asString()
+        assertEquals(204, browser.post("/api/auth/email/verify", mapOf("challengeId" to nextId, "code" to sent.get(), "linking" to true)).statusCode())
+        assertEquals(204, browser.put("/api/account/password", mapOf("password" to "a fresh safe password")).statusCode())
+    }
 
     @Test
     fun `member removal waits for a pooled roster save to finish`() {
@@ -87,32 +195,32 @@ class EmailSignInApiTests {
         val club = clubs.create(owner, "Locked club")
         clubs.accept(member, clubs.invite(owner, club.id))
         val memberId = clubs.management(owner, club.id).members.single { !it.isYou }.id
-        val locked = java.util.concurrent.CountDownLatch(1)
-        val release = java.util.concurrent.CountDownLatch(1)
-        val removing = java.util.concurrent.CountDownLatch(1)
-        val executor = java.util.concurrent.Executors.newFixedThreadPool(2)
+        val locked = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val removing = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
         try {
             val save = executor.submit<Boolean> {
                 clubs.withRosterAccess(member, club.id) { subject ->
                     locked.countDown()
-                    check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                    check(release.await(5, TimeUnit.SECONDS))
                     rosters.save(subject, SavedRoster(0, RosterDraft()))
                 }
             }
-            assertTrue(locked.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(locked.await(5, TimeUnit.SECONDS))
             val removal = executor.submit {
                 removing.countDown()
                 clubs.removeMember(owner, club.id, memberId)
             }
-            assertTrue(removing.await(5, java.util.concurrent.TimeUnit.SECONDS))
-            kotlin.test.assertFailsWith<java.util.concurrent.TimeoutException> {
-                removal.get(200, java.util.concurrent.TimeUnit.MILLISECONDS)
+            assertTrue(removing.await(5, TimeUnit.SECONDS))
+            assertFailsWith<TimeoutException> {
+                removal.get(200, TimeUnit.MILLISECONDS)
             }
             release.countDown()
-            assertTrue(save.get(5, java.util.concurrent.TimeUnit.SECONDS))
-            removal.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertTrue(save.get(5, TimeUnit.SECONDS))
+            removal.get(5, TimeUnit.SECONDS)
             assertEquals(1, rosters.read("club:${club.id}").revision)
-            kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> {
+            assertFailsWith<ResponseStatusException> {
                 clubs.withRosterAccess(member, club.id) { rosters.read(it) }
             }
         } finally {
@@ -123,13 +231,13 @@ class EmailSignInApiTests {
 
     @Test
     fun `pooled roster operations share a transaction and roll back together`() {
-        val pool = dataSource as com.zaxxer.hikari.HikariDataSource
+        val pool = dataSource as HikariDataSource
         val owner = "pooled-${UUID.randomUUID()}"
         val club = clubs.create(owner, "Pooled club")
         val subject = "club:${club.id}"
-        kotlin.test.assertFailsWith<IllegalStateException> {
+        assertFailsWith<IllegalStateException> {
             clubs.withRosterAccess(owner, club.id) {
-                assertTrue(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive())
+                assertTrue(TransactionSynchronizationManager.isActualTransactionActive())
                 assertTrue(rosters.save(subject, SavedRoster(0, RosterDraft(players = listOf(Player("p", "Rolled back", 3))))))
                 assertEquals(1, pool.hikariPoolMXBean.activeConnections)
                 throw IllegalStateException("rollback the entire operation")
@@ -137,7 +245,7 @@ class EmailSignInApiTests {
         }
         assertEquals(0, rosters.read(subject).revision)
         assertTrue(rosters.read(subject).draft.players.isEmpty())
-        kotlin.test.assertNull(clubs.withRosterAccess(owner, club.id) { null })
+        assertNull(clubs.withRosterAccess(owner, club.id) { null })
         repeat(20) { rosters.read(subject) }
         assertEquals(0, pool.hikariPoolMXBean.activeConnections)
         assertTrue(pool.hikariPoolMXBean.totalConnections <= pool.maximumPoolSize)
@@ -157,7 +265,7 @@ class EmailSignInApiTests {
         assertEquals(EmailVerification.Invalid, codes.verify(linkId, "google-browser", null, hash))
         assertEquals(EmailVerification.Verified(subject), codes.verify(linkId, "google-browser", subject, hash))
         assertEquals(EmailVerification.Invalid, codes.verify(linkId, "google-browser", subject, hash))
-        kotlin.test.assertFailsWith<com.biz.teamsheet.auth.EmailSendLimit> { codes.issue(email, UUID.randomUUID(), "google-browser", subject, hash) }
+        assertFailsWith<EmailSendLimit> { codes.issue(email, UUID.randomUUID(), "google-browser", subject, hash) }
 
         ageCode(email)
         val browser = Browser()
@@ -206,7 +314,7 @@ class EmailSignInApiTests {
         val challenge = json.readTree(issued.body()).path("challengeId").asString()
         assertEquals(204, browser.post("/api/auth/email/verify", mapOf("challengeId" to challenge, "code" to sentCode.get())).statusCode())
         val firstReads = List(2) {
-            java.util.concurrent.CompletableFuture.supplyAsync {
+            CompletableFuture.supplyAsync {
                 json.readTree(browser.get("/api/session").body()).path("csrfToken").asString()
             }
         }
@@ -252,9 +360,13 @@ class EmailSignInApiTests {
         verify(setup)
         assertEquals(400, setup.put("/api/account/password", mapOf("password" to "short")).statusCode())
         assertEquals(400, setup.put("/api/account/password", mapOf("password" to "abcdefg")).statusCode())
-        org.mockito.Mockito.doThrow(org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY))
+        Mockito.doThrow(ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY))
             .`when`(passwordSafety).check("Password1!")
         assertEquals(422, setup.put("/api/account/password", mapOf("password" to "Password1!")).statusCode())
+        ageCode(email)
+        val renewed = setup.post("/api/auth/email/request", mapOf("email" to email, "linking" to true))
+        val renewedId = json.readTree(renewed.body()).path("challengeId").asString()
+        assertEquals(204, setup.post("/api/auth/email/verify", mapOf("challengeId" to renewedId, "code" to sent.get(), "linking" to true)).statusCode())
         assertEquals(204, setup.put("/api/account/password", mapOf("password" to password)).statusCode())
         assertTrue(setup.session().path("hasPassword").asBoolean())
         assertTrue(setup.session().path("passwordVerificationExpiresAt").isNull)
@@ -306,7 +418,7 @@ class EmailSignInApiTests {
         assertEquals(204, browser.post("/api/auth/email/verify", mapOf("challengeId" to id, "code" to sent.get())).statusCode())
         browser.session()
         val requests = List(2) { index ->
-            java.util.concurrent.CompletableFuture.supplyAsync {
+            CompletableFuture.supplyAsync {
                 browser.put("/api/account/password", mapOf("password" to "concurrent password $index")).statusCode()
             }
         }
@@ -369,9 +481,9 @@ class EmailSignInApiTests {
     }
 
     private fun agePasswordAttempts(email: String) {
-        val key = java.security.MessageDigest.getInstance("SHA-256").digest(email.toByteArray())
+        val key = MessageDigest.getInstance("SHA-256").digest(email.toByteArray())
             .joinToString("") { "%02x".format(it) }
-        java.sql.DriverManager.getConnection(checkNotNull(System.getenv("TEAMSHEET_AUTH_TEST_JDBC")), testUsername(), testPassword()).use { c ->
+        DriverManager.getConnection(checkNotNull(System.getenv("TEAMSHEET_AUTH_TEST_JDBC")), testUsername(), testPassword()).use { c ->
             c.prepareStatement("UPDATE password_sign_in_limits SET started_at = now() - interval '16 minutes' WHERE bucket = ?").use {
                 it.setString(1, key)
                 it.executeUpdate()
@@ -407,8 +519,8 @@ class EmailSignInApiTests {
         assertEquals("My players", clubs.personalName(other))
         assertEquals("My team", clubs.renamePersonal(subject, "My team"))
         assertEquals("My team", clubs.personalName(subject))
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.renamePersonal(subject, "  ") }
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.renamePersonal(subject, "x".repeat(101)) }
+        assertFailsWith<ResponseStatusException> { clubs.renamePersonal(subject, "  ") }
+        assertFailsWith<ResponseStatusException> { clubs.renamePersonal(subject, "x".repeat(101)) }
         assertEquals("My team", clubs.personalName(subject))
         assertEquals(RosterDraft(), rosters.read(subject).draft)
     }
@@ -424,8 +536,8 @@ class EmailSignInApiTests {
         assertEquals("ORGANISER", clubs.preview(unused).role)
         assertTrue(clubs.management(owner, club.id).invitationExpiresAt != null)
         clubs.revokeInvitations(owner, club.id)
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.accept(organiser, unused) }
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.preview(unused) }
+        assertFailsWith<ResponseStatusException> { clubs.accept(organiser, unused) }
+        assertFailsWith<ResponseStatusException> { clubs.preview(unused) }
         assertEquals(null, clubs.management(owner, club.id).invitationExpiresAt)
 
         val invite = clubs.invite(owner, club.id)
@@ -440,15 +552,15 @@ class EmailSignInApiTests {
         val member = members.single { it.role == "ORGANISER" }
         assertEquals("Invited Organiser", member.name)
         assertEquals("club:${club.id}", clubs.withRosterAccess(organiser, club.id) { it })
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.management(outsider, club.id) }
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.rename(organiser, club.id, "Wrong") }
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.revokeInvitations(organiser, club.id) }
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.removeMember(organiser, club.id, member.id) }
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.removeMember(owner, club.id, members.single { it.isYou }.id) }
+        assertFailsWith<ResponseStatusException> { clubs.management(outsider, club.id) }
+        assertFailsWith<ResponseStatusException> { clubs.rename(organiser, club.id, "Wrong") }
+        assertFailsWith<ResponseStatusException> { clubs.revokeInvitations(organiser, club.id) }
+        assertFailsWith<ResponseStatusException> { clubs.removeMember(organiser, club.id, member.id) }
+        assertFailsWith<ResponseStatusException> { clubs.removeMember(owner, club.id, members.single { it.isYou }.id) }
         clubs.removeMember(owner, club.id, member.id)
         assertEquals(1, clubs.management(owner, club.id).members.size)
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.withRosterAccess(organiser, club.id) { error("Removed member should not reach the roster") } }
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.accept(organiser, invite) }
+        assertFailsWith<ResponseStatusException> { clubs.withRosterAccess(organiser, club.id) { error("Removed member should not reach the roster") } }
+        assertFailsWith<ResponseStatusException> { clubs.accept(organiser, invite) }
     }
 
     @Test
@@ -459,20 +571,20 @@ class EmailSignInApiTests {
         val club = clubs.create(owner, " Saturday Football ")
         assertEquals("Saturday Football", club.name)
         assertEquals("OWNER", club.role)
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.rosterSubject(stranger, club.id) }
+        assertFailsWith<ResponseStatusException> { clubs.rosterSubject(stranger, club.id) }
         val subject = clubs.rosterSubject(owner, club.id)
         val roster = SavedRoster(0, RosterDraft(players = listOf(Player("club-player", "Club player", 4))))
         assertTrue(rosters.save(subject, roster))
         val firstInvite = clubs.invite(owner, club.id)
         val replacement = clubs.invite(owner, club.id)
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.accept(organiser, firstInvite) }
+        assertFailsWith<ResponseStatusException> { clubs.accept(organiser, firstInvite) }
         assertEquals("ORGANISER", clubs.accept(organiser, replacement).role)
         assertEquals(clubs.rosterSubject(owner, club.id), clubs.rosterSubject(organiser, club.id))
         assertEquals(roster.draft, rosters.read(clubs.rosterSubject(organiser, club.id)).draft)
         assertEquals(RosterDraft(), rosters.read(organiser).draft)
         assertEquals(club.id, clubs.accept(organiser, replacement).id)
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.accept(stranger, replacement) }
-        kotlin.test.assertFailsWith<org.springframework.web.server.ResponseStatusException> { clubs.invite(organiser, club.id) }
+        assertFailsWith<ResponseStatusException> { clubs.accept(stranger, replacement) }
+        assertFailsWith<ResponseStatusException> { clubs.invite(organiser, club.id) }
         assertEquals(listOf(club.id), clubs.list(organiser).map { it.id })
         assertEquals(emptyList(), clubs.list(stranger))
     }
@@ -489,7 +601,7 @@ class EmailSignInApiTests {
 
     private fun ageCode(email: String) {
         val url = checkNotNull(System.getenv("TEAMSHEET_AUTH_TEST_JDBC"))
-        java.sql.DriverManager.getConnection(url, testUsername(), testPassword()).use { connection ->
+        DriverManager.getConnection(url, testUsername(), testPassword()).use { connection ->
             connection.prepareStatement("UPDATE email_sign_in_codes SET issued_at = now() - interval '11 minutes' WHERE email = ?").use {
                 it.setString(1, email)
                 assertEquals(1, it.executeUpdate())
@@ -498,6 +610,7 @@ class EmailSignInApiTests {
     }
 
     companion object {
+        private val browserAddresses = AtomicInteger()
         private fun testUsername() = System.getenv("TEAMSHEET_AUTH_TEST_USER") ?: System.getProperty("user.name")
         private fun testPassword() = System.getenv("TEAMSHEET_AUTH_TEST_PASSWORD") ?: ""
 
