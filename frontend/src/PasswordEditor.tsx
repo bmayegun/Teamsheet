@@ -105,37 +105,40 @@ export default function PasswordEditor({ csrfToken, requireCurrent = false, onSa
   }
 
   return <>
-    <form className="add-form password-form" onSubmit={save}>
-      {needsCurrent && <label>Current password
-        <input type={visible ? 'text' : 'password'} required maxLength={128} autoComplete="current-password"
-          value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
-      </label>}
-      <label>New password
-        <input autoFocus type={visible ? 'text' : 'password'} required minLength={8} maxLength={128}
-          autoComplete="new-password" aria-describedby="password-length" value={password} onChange={e => setPassword(e.target.value)} />
-      </label>
-      <p className="hint" id="password-length">At least 8 characters. Longer passwords are stronger. Spaces are welcome.</p>
-      <label>Confirm new password
-        <input type={visible ? 'text' : 'password'} required minLength={8} maxLength={128} autoComplete="new-password"
-          value={confirmation} onChange={e => setConfirmation(e.target.value)} />
-      </label>
-      <label className="password-visibility"><input type="checkbox" checked={visible} onChange={e => setVisible(e.target.checked)} />Show passwords</label>
-      {checking && <p className="hint" role="status">Checking verification…</p>}
-      {!checking && expired && <p className="hint" role="status">
-        {expiresAt ? 'Your email verification has expired.' : 'Email verification is required.'} Verify again to save your password. Your entries will stay here.
-      </p>}
-      {!checking && usingEmailProof && !expired && <p className="hint">Email verified. Save your password before {new Date(expiresAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.</p>}
-      <button className="primary" disabled={busy || checking || expired || !account || checkFailed || !password || !confirmation}>{busy ? 'Saving…' : 'Save password'}</button>
-      {error && <p role="alert" className="error">{error}</p>}
-      {!checking && checkFailed && <button className="text-button" type="button" onClick={() => void refreshVerification()}>Retry session check</button>}
-    </form>
-    {!checking && account?.emailSignInEnabled && account.linkedEmail && <>
-      {needsCurrent && <button className="text-button" type="button" onClick={() => setUsingEmailProof(true)}>Verify email instead</button>}
-      {expired && <div className="mt-3">
-        <EmailSignIn initialEmail={account.linkedEmail} linking csrfToken={account.csrfToken ?? csrfToken}
-          verificationLabel="Verify email" onLinked={() => void refreshVerification()} />
-      </div>}
-    </>}
-    {!checking && expired && account && !account.emailSignInEnabled && <p className="hint">Email verification is currently unavailable. Try again later.</p>}
+    {checking ? <p className="hint" role="status">Checking your verification…</p>
+      : checkFailed ? <div className="password-recovery">
+        <p className="hint" role="alert">{error || 'Could not check your session. Retry to continue.'}</p>
+        <button className="secondary" type="button" onClick={() => void refreshVerification()}>Retry session check</button>
+      </div>
+      : expired ? <section className="password-recovery" aria-labelledby="password-recovery-title">
+        <h3 id="password-recovery-title">Verify your email</h3>
+        <p className="hint" role="status">
+          {expiresAt ? 'Your email verification has expired.' : 'Email verification is required.'} Verify again to save your password. Your entries will stay here.
+        </p>
+        {account?.emailSignInEnabled && account.linkedEmail
+          ? <EmailSignIn initialEmail={account.linkedEmail} linking csrfToken={account.csrfToken ?? csrfToken}
+              verificationLabel="Verify email" onLinked={() => void refreshVerification()} />
+          : <p className="hint">Email verification is currently unavailable. Try again later.</p>}
+      </section>
+      : <form className="add-form password-form" onSubmit={save}>
+        {needsCurrent && <label>Current password
+          <input type={visible ? 'text' : 'password'} required maxLength={128} autoComplete="current-password"
+            value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
+        </label>}
+        <label>New password
+          <input autoFocus type={visible ? 'text' : 'password'} required minLength={8} maxLength={128}
+            autoComplete="new-password" aria-describedby="password-length" value={password} onChange={e => setPassword(e.target.value)} />
+        </label>
+        <p className="hint" id="password-length">At least 8 characters. Longer passwords are stronger. Spaces are welcome.</p>
+        <label>Confirm new password
+          <input type={visible ? 'text' : 'password'} required minLength={8} maxLength={128} autoComplete="new-password"
+            value={confirmation} onChange={e => setConfirmation(e.target.value)} />
+        </label>
+        <label className="password-visibility"><input type="checkbox" checked={visible} onChange={e => setVisible(e.target.checked)} />Show passwords</label>
+        {usingEmailProof && <p className="hint" role="status">Email verified. Save your password before {new Date(expiresAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.</p>}
+        {needsCurrent && account?.emailSignInEnabled && <button className="text-button" type="button" onClick={() => setUsingEmailProof(true)}>Verify email instead</button>}
+        <button className="primary" disabled={busy || checking || expired || !account || checkFailed || !password || !confirmation}>{busy ? 'Saving…' : 'Save password'}</button>
+        {error && <p role="alert" className="error">{error}</p>}
+      </form>}
   </>
 }

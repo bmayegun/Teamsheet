@@ -35,6 +35,8 @@ class ClubStore(private val jdbc: JdbcTemplate) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Use a workspace name between 1 and 100 characters.")
         }
         return jdbc.execute(ConnectionCallback { connection ->
+            lockWorkspaceNames(connection, listOf(subject))
+            requireUniqueWorkspaceName(connection, subject, trimmed, includePersonal = false)
             connection.prepareStatement("""
                 INSERT INTO personal_workspace_names (account_subject, name) VALUES (?, ?)
                 ON CONFLICT (account_subject) DO UPDATE SET name = excluded.name
@@ -66,6 +68,8 @@ class ClubStore(private val jdbc: JdbcTemplate) {
             throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Use a club name between 1 and 100 characters.")
         }
         return jdbc.execute(ConnectionCallback { connection ->
+            lockWorkspaceNames(connection, listOf(subject))
+            requireUniqueWorkspaceName(connection, subject, trimmed)
             val id = UUID.randomUUID()
             connection.prepareStatement("INSERT INTO clubs (id, name) VALUES (?, ?)").use {
                 it.setObject(1, id)
@@ -131,6 +135,11 @@ class ClubStore(private val jdbc: JdbcTemplate) {
         return jdbc.execute(ConnectionCallback { connection ->
             lockClub(connection, clubId)
             requireOwner(connection, subject, clubId)
+            val members = memberSubjects(connection, clubId)
+            lockWorkspaceNames(connection, members)
+            members.forEach { member ->
+                requireUniqueWorkspaceName(connection, member, trimmed, clubId)
+            }
             connection.prepareStatement("UPDATE clubs SET name = ? WHERE id = ?").use {
                 it.setString(1, trimmed)
                 it.setObject(2, clubId)
@@ -191,6 +200,31 @@ class ClubStore(private val jdbc: JdbcTemplate) {
         }
     })
 
+    fun delete(subject: String, clubId: UUID) = jdbc.execute(ConnectionCallback { connection ->
+        lockClub(connection, clubId)
+        requireOwner(connection, subject, clubId)
+        connection.prepareStatement("SELECT id FROM club_members WHERE club_id = ? FOR UPDATE").use {
+            it.setObject(1, clubId)
+            it.executeQuery().use { rows -> while (rows.next()) Unit }
+        }
+        connection.prepareStatement("DELETE FROM saved_rosters WHERE account_subject = ?").use {
+            it.setString(1, "club:$clubId")
+            it.executeUpdate()
+        }
+        connection.prepareStatement("DELETE FROM club_invitations WHERE club_id = ?").use {
+            it.setObject(1, clubId)
+            it.executeUpdate()
+        }
+        connection.prepareStatement("DELETE FROM club_members WHERE club_id = ?").use {
+            it.setObject(1, clubId)
+            it.executeUpdate()
+        }
+        connection.prepareStatement("DELETE FROM clubs WHERE id = ?").use {
+            it.setObject(1, clubId)
+            if (it.executeUpdate() != 1) throw ResponseStatusException(HttpStatus.NOT_FOUND)
+        }
+    })
+
     fun invite(subject: String, clubId: UUID): String = jdbc.execute(ConnectionCallback { connection ->
         lockClub(connection, clubId)
         requireOwner(connection, subject, clubId)
@@ -239,6 +273,12 @@ class ClubStore(private val jdbc: JdbcTemplate) {
             if (accepted != subject) throw invalidInvitation()
             requireMember(connection, subject, clubId)
         } else {
+            lockWorkspaceNames(connection, listOf(subject))
+            val clubName = connection.prepareStatement("SELECT name FROM clubs WHERE id = ?").use {
+                it.setObject(1, clubId)
+                it.executeQuery().use { rows -> check(rows.next()); rows.getString(1) }
+            }
+            requireUniqueWorkspaceName(connection, subject, clubName, clubId)
             connection.prepareStatement("""
                 INSERT INTO club_members (club_id, account_subject, role) VALUES (?, ?, 'ORGANISER')
                 ON CONFLICT DO NOTHING
@@ -288,6 +328,59 @@ class ClubStore(private val jdbc: JdbcTemplate) {
             it.executeQuery().use { rows ->
                 if (!rows.next()) throw ResponseStatusException(HttpStatus.NOT_FOUND)
             }
+        }
+    }
+
+    private fun memberSubjects(connection: Connection, clubId: UUID): List<String> =
+        connection.prepareStatement("SELECT account_subject FROM club_members WHERE club_id = ?").use {
+            it.setObject(1, clubId)
+            it.executeQuery().use { rows -> buildList { while (rows.next()) add(rows.getString(1)) } }
+        }
+
+    private fun lockWorkspaceNames(connection: Connection, subjects: List<String>) {
+        subjects.distinct().sorted().forEach { subject ->
+            connection.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))").use {
+                it.setString(1, "workspace-names:$subject")
+                it.executeQuery().use { rows -> check(rows.next()) }
+            }
+        }
+    }
+
+    private fun requireUniqueWorkspaceName(
+        connection: Connection,
+        subject: String,
+        name: String,
+        excludingClubId: UUID? = null,
+        includePersonal: Boolean = true,
+    ) {
+        if (includePersonal) {
+            val personal = connection.prepareStatement("SELECT name FROM personal_workspace_names WHERE account_subject = ?").use {
+                it.setString(1, subject)
+                it.executeQuery().use { rows -> if (rows.next()) rows.getString(1) else "My players" }
+            }
+            if (personal.equals(name, ignoreCase = true)) {
+                throw ResponseStatusException(HttpStatus.CONFLICT, "A workspace with this name already exists.")
+            }
+        }
+        val clubs = if (excludingClubId == null) {
+            connection.prepareStatement("""
+                SELECT c.name FROM clubs c JOIN club_members m ON m.club_id = c.id WHERE m.account_subject = ?
+            """).use {
+                it.setString(1, subject)
+                it.executeQuery().use { rows -> buildList { while (rows.next()) add(rows.getString(1)) } }
+            }
+        } else {
+            connection.prepareStatement("""
+                SELECT c.name FROM clubs c JOIN club_members m ON m.club_id = c.id
+                WHERE m.account_subject = ? AND c.id <> ?
+            """).use {
+                it.setString(1, subject)
+                it.setObject(2, excludingClubId)
+                it.executeQuery().use { rows -> buildList { while (rows.next()) add(rows.getString(1)) } }
+            }
+        }
+        if (clubs.any { it.equals(name, ignoreCase = true) }) {
+            throw ResponseStatusException(HttpStatus.CONFLICT, "A workspace with this name already exists.")
         }
     }
 

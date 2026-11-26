@@ -257,6 +257,87 @@ export default function SavedPlayers({ draft, onChange, busy, existingPlayers, o
         }}>Undo</button>
       </div>}
 
+      <details className="roster-management">
+        <summary>Manage saved players <span className="count">{draft.players.length}</span></summary>
+        <fieldset className="saved-roster-fields" disabled={busy} aria-label="Manage saved players">
+          {existingPlayers.length > 0 && <button type="button" className="secondary" onClick={onAdopt}>Add players from this browser</button>}
+          <form className="add-form" onSubmit={event => {
+            event.preventDefault()
+            const name = playerName.trim()
+            if (!name || draft.players.length >= 1000) return
+            onChange({ ...draft, players: [...draft.players, newPlayer(name)] })
+            setPlayerName('')
+          }}>
+            <label>Player name<input value={playerName} onChange={event => setPlayerName(event.target.value)} maxLength={200} /></label>
+            <button type="submit" className="secondary" disabled={!playerName.trim() || draft.players.length >= 1000}>Add saved player</button>
+          </form>
+          <details>
+            <summary>Add players in bulk</summary>
+            <label className="add-form">Player list
+              <textarea rows={3} placeholder="One name per line" value={rosterPaste}
+                aria-describedby="player-import-hint"
+                onChange={event => { setRosterPaste(event.target.value); setPreview(null); setFeedback('') }} />
+            </label>
+            <p className="hint" id="player-import-hint">Type Alex | 4 to set a rating, or paste name and rating columns. Names alone start at 3.</p>
+            <button className="secondary" type="button" onClick={previewRoster} disabled={!rosterPaste.trim() || preview !== null}>Preview players</button>
+            {preview && preview.length > 0 && <>
+              <p className="hint">Select positions in preference order. Leave them blank if you’re unsure.</p>
+              <div className="section-title">
+                <label className="attending-filter">
+                  <input type="checkbox" checked={allPreviewSelected}
+                    ref={input => { if (input) input.indeterminate = !allPreviewSelected && selectedPreview.length > 0 }}
+                    onChange={event => setExcludedPreviewIds(new Set(event.target.checked ? [] : preview.map(player => player.id)))} />
+                  Select all
+                </label>
+                <span className="hint" role="status">{selectedPreview.length} of {preview.length} selected</span>
+              </div>
+              <ul className="player-list" aria-label="Players to add">{preview.map(player => <li key={player.id} className="bulk-preview-row">
+                <label>
+                  <input type="checkbox" checked={!excludedPreviewIds.has(player.id)} onChange={event => {
+                    const checked = event.target.checked
+                    setExcludedPreviewIds(current => {
+                      const next = new Set(current)
+                      if (checked) next.delete(player.id)
+                      else next.add(player.id)
+                      return next
+                    })
+                  }} />
+                  <span>{player.name}</span>
+                </label>
+                <div className="bulk-preview-controls">
+                  <SkillRating playerName={player.name} value={player.skillRating}
+                    onChange={skillRating => updatePreviewPlayer(player.id, { skillRating })} />
+                  <PositionPicker playerName={player.name} value={player.positions}
+                    onChange={positions => updatePreviewPlayer(player.id, { positions })} />
+                </div>
+              </li>)}</ul>
+              <button type="button" className="secondary" disabled={selectedPreview.length === 0} onClick={() => {
+                const existing = new Set(draft.players.map(player => nameKey(player.name)))
+                const additions = selectedPreview.filter(player => !existing.has(nameKey(player.name)))
+                if (draft.players.length + additions.length > 1000) {
+                  setFeedback('A roster can have up to 1,000 saved players. Select fewer players to add.')
+                  return
+                }
+                onChange({ ...draft, players: [...draft.players, ...additions] })
+                setPreview(null)
+                setRosterPaste('')
+                setFeedback('')
+              }}>Add to saved players</button>
+            </>}
+          </details>
+          {feedback && <p role="status">{feedback}</p>}
+          {draft.players.length > 0 && <>
+            <p className="hint">Open a player to edit their rating and positions. Select positions in preference order.</p>
+            <ul className="player-list">
+              {draft.players.map(player => <PlayerEditor key={player.id} player={player} collapsed
+                onChange={updated => onChange({ ...draft, players: draft.players.map(item => item.id === updated.id ? updated : item) })}
+                onRemove={() => onChange({ ...draft, players: draft.players.filter(item => item.id !== player.id),
+                  attendingIds: draft.attendingIds.filter(id => id !== player.id) })} />)}
+            </ul>
+          </>}
+        </fieldset>
+      </details>
+
       {draft.players.length > 0 ? <>
         <div className="attendance-filters">
           <label>Find a saved player
@@ -360,85 +441,6 @@ export default function SavedPlayers({ draft, onChange, busy, existingPlayers, o
       </div>
     </fieldset>
 
-    <details className="roster-management">
-      <summary>Manage saved players <span className="count">{draft.players.length}</span></summary>
-      <fieldset className="saved-roster-fields" disabled={busy} aria-label="Manage saved players">
-        {existingPlayers.length > 0 && <button type="button" className="secondary" onClick={onAdopt}>Add players from this browser</button>}
-        <form className="add-form" onSubmit={event => {
-          event.preventDefault()
-          const name = playerName.trim()
-          if (!name || draft.players.length >= 1000) return
-          onChange({ ...draft, players: [...draft.players, newPlayer(name)] })
-          setPlayerName('')
-        }}>
-          <label>Player name<input value={playerName} onChange={event => setPlayerName(event.target.value)} maxLength={200} /></label>
-          <button type="submit" className="secondary" disabled={!playerName.trim() || draft.players.length >= 1000}>Add saved player</button>
-        </form>
-        <details>
-          <summary>Add players in bulk</summary>
-          <label className="add-form">Player list
-            <textarea rows={3} placeholder="One name per line" value={rosterPaste}
-              aria-describedby="player-import-hint"
-              onChange={event => { setRosterPaste(event.target.value); setPreview(null); setFeedback('') }} />
-          </label>
-          <p className="hint" id="player-import-hint">Type Alex | 4 to set a rating, or paste name and rating columns. Names alone start at 3.</p>
-          <button className="secondary" type="button" onClick={previewRoster} disabled={!rosterPaste.trim() || preview !== null}>Preview players</button>
-          {preview && preview.length > 0 && <>
-            <p className="hint">Select positions in preference order. Leave them blank if you’re unsure.</p>
-            <div className="section-title">
-              <label className="attending-filter">
-                <input type="checkbox" checked={allPreviewSelected}
-                  ref={input => { if (input) input.indeterminate = !allPreviewSelected && selectedPreview.length > 0 }}
-                  onChange={event => setExcludedPreviewIds(new Set(event.target.checked ? [] : preview.map(player => player.id)))} />
-                Select all
-              </label>
-              <span className="hint" role="status">{selectedPreview.length} of {preview.length} selected</span>
-            </div>
-            <ul className="player-list" aria-label="Players to add">{preview.map(player => <li key={player.id} className="bulk-preview-row">
-              <label>
-                <input type="checkbox" checked={!excludedPreviewIds.has(player.id)} onChange={event => {
-                  const checked = event.target.checked
-                  setExcludedPreviewIds(current => {
-                    const next = new Set(current)
-                    if (checked) next.delete(player.id)
-                    else next.add(player.id)
-                    return next
-                  })
-                }} />
-                <span>{player.name}</span>
-              </label>
-              <div className="bulk-preview-controls">
-                <SkillRating playerName={player.name} value={player.skillRating}
-                  onChange={skillRating => updatePreviewPlayer(player.id, { skillRating })} />
-                <PositionPicker playerName={player.name} value={player.positions}
-                  onChange={positions => updatePreviewPlayer(player.id, { positions })} />
-              </div>
-            </li>)}</ul>
-            <button type="button" className="secondary" disabled={selectedPreview.length === 0} onClick={() => {
-              const existing = new Set(draft.players.map(player => nameKey(player.name)))
-              const additions = selectedPreview.filter(player => !existing.has(nameKey(player.name)))
-              if (draft.players.length + additions.length > 1000) {
-                setFeedback('A roster can have up to 1,000 saved players. Select fewer players to add.')
-                return
-              }
-              onChange({ ...draft, players: [...draft.players, ...additions] })
-              setPreview(null)
-              setRosterPaste('')
-              setFeedback('')
-            }}>Add to saved players</button>
-          </>}
-        </details>
-        {feedback && <p role="status">{feedback}</p>}
-        {draft.players.length > 0 && <>
-          <p className="hint">Open a player to edit their rating and positions. Select positions in preference order.</p>
-          <ul className="player-list">
-            {draft.players.map(player => <PlayerEditor key={player.id} player={player} collapsed
-              onChange={updated => onChange({ ...draft, players: draft.players.map(item => item.id === updated.id ? updated : item) })}
-              onRemove={() => onChange({ ...draft, players: draft.players.filter(item => item.id !== player.id),
-                attendingIds: draft.attendingIds.filter(id => id !== player.id) })} />)}
-          </ul>
-        </>}
-      </fieldset>
-    </details>
+
   </>
 }

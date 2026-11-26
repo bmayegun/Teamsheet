@@ -46,6 +46,12 @@ class ClubController(private val store: ClubStore) {
     fun rename(@AuthenticationPrincipal principal: Any?, @PathVariable clubId: UUID, @RequestBody body: WorkspaceName) =
         privateResponse(store.rename(subject(principal), clubId, body.name))
 
+    @DeleteMapping("/{clubId}")
+    fun delete(@AuthenticationPrincipal principal: Any?, @PathVariable clubId: UUID): ResponseEntity<Void> {
+        store.delete(subject(principal), clubId)
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build()
+    }
+
     @GetMapping("/{clubId}/members")
     fun members(@AuthenticationPrincipal principal: Any?, @PathVariable clubId: UUID) =
         privateResponse(store.management(subject(principal), clubId))
