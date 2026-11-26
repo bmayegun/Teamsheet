@@ -389,12 +389,18 @@ class EmailSignInApiTests {
         assertEquals(403, login.put("/api/account/password", mapOf("password" to replacement, "currentPassword" to "wrong")).statusCode())
         assertEquals(204, login.put("/api/account/password", mapOf("password" to replacement, "currentPassword" to password)).statusCode())
 
+        assertEquals(401, setup.get("/api/roster").statusCode())
+        assertEquals(200, login.get("/api/roster").statusCode())
+        login.session()
+
         ageCode(email)
         val recovery = Browser()
         recovery.session()
         verify(recovery)
         assertTrue(recovery.get("/api/roster").body().contains(marker))
         assertEquals(204, recovery.put("/api/account/password", mapOf("password" to password)).statusCode())
+        assertEquals(401, login.get("/api/roster").statusCode())
+        assertEquals(200, recovery.get("/api/roster").statusCode())
         recovery.session()
         // The email proof was consumed by the reset, so changing again needs fresh proof.
         val proofRequired = recovery.put("/api/account/password", mapOf("password" to replacement))

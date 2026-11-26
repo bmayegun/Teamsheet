@@ -16,7 +16,7 @@ import org.springframework.web.server.ResponseStatusException
 
 @RestController
 @Profile("roster")
-class EmailSignInController(private val signIn: EmailSignIn) {
+class EmailSignInController(private val signIn: EmailSignIn, private val identities: EmailSignInStore) {
     data class CodeRequest(val email: String, val linking: Boolean = false)
     data class CodeVerification(val challengeId: UUID, val code: String, val linking: Boolean = false)
     data class Challenge(val challengeId: UUID)
@@ -43,7 +43,7 @@ class EmailSignInController(private val signIn: EmailSignIn) {
         val browser = request.getSession(false)?.id ?: throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Request a new code.")
         val subject = signIn.verify(body.challengeId, body.code, browser, account)
         if (!body.linking) {
-            AccountAuthentication.signIn(subject, "email", request, response)
+            AccountAuthentication.signIn(subject, "email", request, response, identities.credentialsVersion(subject))
         }
         AccountAuthentication.emailVerified(subject, request)
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build()

@@ -20,21 +20,22 @@ class PasswordAuthentication(private val store: EmailSignInStore, private val sa
     private val encoder = Pbkdf2PasswordEncoder.defaultsForSpringSecurity_v5_8()
     private val dummyHash = encoder.encode("unused-password-for-timing-only")
 
-    internal fun authenticate(address: String, password: String): String {
+    internal fun authenticate(address: String, password: String): EmailSignInStore.Credentials {
         val email = address.trim().lowercase(Locale.ROOT)
         if (email.length > 254 || password.length > 128) throw ResponseStatusException(HttpStatus.BAD_REQUEST)
         reserve(email)
         val credentials = store.credentials(email)
         val matches = encoder.matches(password, credentials?.hash ?: dummyHash)
         if (!matches || credentials?.hash == null) throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
-        return credentials.subject
+        return credentials
     }
 
-    internal fun save(subject: String, password: String, currentPassword: String?, verified: Boolean) {
+    internal fun save(subject: String, password: String, currentPassword: String?, verified: Boolean, expectedVersion: Long?): Long {
         if (password.length !in 8..128) throw ResponseStatusException(HttpStatus.BAD_REQUEST)
         val email = store.linkedEmail(subject) ?: throw ResponseStatusException(HttpStatus.CONFLICT)
         if (!verified) reserve(email)
         val credentials = store.credentials(email) ?: throw ResponseStatusException(HttpStatus.CONFLICT)
+        if (expectedVersion != credentials.version) throw ResponseStatusException(HttpStatus.UNAUTHORIZED)
         if (!verified) {
             if (credentials.hash == null || currentPassword == null || currentPassword.length > 128 ||
                 !encoder.matches(currentPassword, credentials.hash)) {
@@ -42,9 +43,10 @@ class PasswordAuthentication(private val store: EmailSignInStore, private val sa
             }
         }
         safety.check(password)
-        if (!store.savePassword(subject, credentials.hash, checkNotNull(encoder.encode(password)))) {
+        if (!store.savePassword(subject, credentials.hash, checkNotNull(encoder.encode(password)), credentials.version)) {
             throw ResponseStatusException(HttpStatus.CONFLICT)
         }
+        return credentials.version + 1
     }
 
     private fun reserve(email: String) {
@@ -62,8 +64,8 @@ class PasswordAuthenticationController(private val passwords: PasswordAuthentica
     fun signIn(@RequestBody body: Login, @AuthenticationPrincipal principal: Any?,
                request: HttpServletRequest, response: HttpServletResponse): ResponseEntity<Void> {
         if (rosterAccount(principal) != null) throw ResponseStatusException(HttpStatus.CONFLICT)
-        val subject = passwords.authenticate(body.email, body.password)
-        AccountAuthentication.signIn(subject, "password", request, response)
+        val credentials = passwords.authenticate(body.email, body.password)
+        AccountAuthentication.signIn(credentials.subject, "password", request, response, credentials.version)
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build<Void>()
     }
 
@@ -80,10 +82,12 @@ class PasswordAuthenticationController(private val passwords: PasswordAuthentica
             if (verified && !AccountAuthentication.reserveVerifiedPasswordSave(request)) {
                 response.setHeader("Password-Verification-Expired", "true")
             }
-            passwords.save(account.subject, body.password, body.currentPassword, verified)
+            val version = passwords.save(account.subject, body.password, body.currentPassword, verified,
+                request.session.getAttribute(AccountAuthentication.CREDENTIALS_VERSION) as? Long)
+            request.session.setAttribute(AccountAuthentication.CREDENTIALS_VERSION, version)
             AccountAuthentication.consumeVerification(request)
+            AccountAuthentication.rotateSession(request, response)
         }
-        AccountAuthentication.rotateSession(request, response)
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build<Void>()
     }
 }

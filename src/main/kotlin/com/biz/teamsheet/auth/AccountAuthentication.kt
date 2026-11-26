@@ -8,6 +8,7 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.security.web.csrf.HttpSessionCsrfTokenRepository
 
 internal object AccountAuthentication {
+    internal const val CREDENTIALS_VERSION = "teamsheet.credentialsVersion"
     private const val EMAIL_VERIFIED_AT = "teamsheet.emailVerifiedAt"
     private const val PASSWORD_SAVE_ATTEMPTS = "teamsheet.verifiedPasswordSaveAttempts"
     private const val EMAIL_VERIFIED_SUBJECT = "teamsheet.emailVerifiedSubject"
@@ -18,7 +19,8 @@ internal object AccountAuthentication {
         csrf.saveToken(csrf.generateToken(request), request, response)
     }
 
-    fun signIn(subject: String, method: String, request: HttpServletRequest, response: HttpServletResponse) {
+    fun signIn(subject: String, method: String, request: HttpServletRequest, response: HttpServletResponse, version: Long) {
+        request.session.setAttribute(CREDENTIALS_VERSION, version)
         rotateSession(request, response)
         val context = SecurityContextHolder.createEmptyContext()
         context.authentication = UsernamePasswordAuthenticationToken.authenticated(
