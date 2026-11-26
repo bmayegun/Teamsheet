@@ -14,6 +14,12 @@
   button { cursor: pointer; }
   button:disabled { cursor: default; opacity: .55; }
   :focus-visible { outline: 2px solid #298464; outline-offset: 3px; }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    border: 2px solid #298464;
+    outline: none;
+  }
 }
 
 @layer components {
@@ -38,6 +44,7 @@
   textarea { @apply resize-y; }
   .secondary, .primary { @apply min-h-11 rounded-lg px-4 py-2.5 text-sm font-bold; }
   .secondary { @apply justify-self-start bg-[#eaf3eb] text-[#194435] hover:bg-[#d8ebdc]; }
+  .danger-button { @apply min-h-11 rounded-lg bg-[#94251c] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#761c16]; }
   .primary { @apply w-full bg-[#19543f] text-white hover:bg-[#113d2e]; }
   .hint { @apply mt-2 text-sm font-normal text-[#4c6259]; }
   .player-list { @apply mt-4 divide-y divide-[#e3ebe5] border-t border-[#e3ebe5]; }
@@ -102,7 +109,7 @@
   .roster-management { @apply mt-4; }
   .roster-management summary .count { @apply ml-2; }
   .player-details { @apply grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2; }
-  .player-details > .skill-rating { @apply col-span-2 row-start-2; }
+  .player-details > .skill-rating-control { @apply col-span-2 row-start-2; }
   .bulk-preview-row { @apply flex flex-wrap items-start justify-between gap-x-3 gap-y-1 py-2; }
   .bulk-preview-row > label { @apply flex min-h-11 min-w-0 flex-[1_1_4rem] cursor-pointer items-center gap-2; }
   .bulk-preview-row > label input { @apply size-4 shrink-0; }
@@ -110,6 +117,7 @@
   .bulk-preview-controls { @apply w-56 max-w-full; }
   .bulk-preview-controls .position-buttons { @apply gap-1; }
   .skill-rating { @apply grid w-full max-w-xs min-w-0 grid-cols-5 rounded-lg border border-[#ccd9d0] bg-[#eff3ef]; }
+  .skill-rating-control { @apply grid w-full max-w-xs; }
   .skill-segment { @apply relative grid min-h-11 cursor-pointer place-items-center text-[#42584e]; }
   .skill-segment:first-of-type { @apply rounded-l-[7px]; }
   .skill-segment:last-of-type { @apply rounded-r-[7px]; }
@@ -192,16 +200,24 @@
 @layer components {
   .account-trigger { @apply flex max-w-[45vw] items-center gap-2; }
   .account-panel {
-    @apply fixed m-0 max-h-[calc(100dvh-5rem)] w-[min(19rem,calc(100vw-2rem))] overflow-auto rounded-xl border border-[#ccd9d0] bg-white p-1.5 text-sm font-normal text-[#182a26];
-    inset: 3.6rem 1.25rem auto auto;
+    @apply fixed m-0 w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-xl border border-[#ccd9d0] bg-white p-1.5 text-sm font-normal text-[#182a26];
+    inset: max(3.6rem, env(safe-area-inset-top)) max(1.25rem, env(safe-area-inset-right)) auto auto;
+    max-height: calc(100dvh - max(3.6rem, env(safe-area-inset-top)) - 1rem);
+    overscroll-behavior: contain;
+    scroll-padding-block: 3.75rem 1rem;
     box-shadow: 0 8px 28px rgb(21 58 46 / 15%);
   }
+  .account-panel::backdrop { background: transparent; }
   @media (min-width: 40rem) {
     .account-panel { right: max(2rem, calc((100% - 68rem) / 2)); }
   }
-  .account-identity { @apply mx-2 mb-1 border-b border-[#dbe4dc] px-1 pb-3 pt-2 wrap-anywhere; }
+  .account-identity {
+    @apply sticky top-[-.375rem] z-10 mx-2 mb-1 flex items-start justify-between gap-3 border-b border-[#dbe4dc] bg-white px-1 pb-3 pt-2 wrap-anywhere;
+  }
+  .account-identity-copy { @apply min-w-0; }
   .account-identity h2 { @apply text-base font-bold; }
   .account-identity p, .account-feedback { @apply mt-1 text-sm text-[#4c6259]; }
+  .account-close { @apply flex min-h-11 shrink-0 items-center justify-center rounded-lg px-3 text-sm font-semibold text-[#194435] hover:bg-[#eaf3eb]; }
   .account-action { @apply flex min-h-11 w-full cursor-pointer items-center justify-between rounded-lg px-3 text-left font-medium hover:bg-[#eaf3eb] focus-visible:outline-offset-[-2px]; }
   .account-methods > summary { list-style: none; }
   .account-methods > summary::-webkit-details-marker { display: none; }
@@ -210,13 +226,60 @@
   .account-edit, .account-methods-body { @apply grid gap-2 px-3 pb-3 pt-1; }
   .account-feedback { @apply px-3 pb-2; }
   .account-panel > form:last-child { @apply border-t border-[#dbe4dc]; }
+  .account-settings-dialog {
+    @apply fixed m-auto max-h-[calc(100dvh-2rem)] w-[min(32rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-[#ccd9d0] bg-white p-5 text-[#182a26] sm:p-7;
+    overscroll-behavior: contain;
+    scroll-padding-block: 4rem 1rem;
+    box-shadow: 0 18px 60px rgb(15 43 33 / 20%);
+  }
+  .account-settings-dialog::backdrop { background: rgb(12 36 27 / 46%); }
+  .account-settings-header {
+    @apply sticky top-[-1.25rem] z-10 -mx-5 -mt-5 mb-3 flex items-center justify-between gap-3 border-b border-[#dbe4dc] bg-white px-5 pb-3 pt-4 sm:-mx-7 sm:-mt-7 sm:px-7 sm:pt-6;
+  }
+  .account-settings-intro { @apply mb-4 text-sm text-[#4c6259]; }
 }
 
 
 @layer components {
   .password-form { @apply grid gap-3; }
   .password-form input:not([type="checkbox"]) { @apply mt-1 min-h-11; }
+  .password-input-field { @apply grid gap-1; }
+  .password-input-row { @apply relative; }
+  .password-input-row input { @apply mt-0 pr-12; }
+  .password-visibility-toggle { @apply absolute right-1 top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-md text-[#4c6259] hover:text-[#194435]; }
+  .password-visibility-toggle:focus-visible { outline-offset: -2px; background: transparent; }
+  .password-visibility-toggle svg { @apply size-5; }
   .password-visibility { @apply flex min-h-11 items-center gap-2; }
   .password-visibility input { @apply size-4; }
+  .password-recovery { @apply grid content-start gap-3; }
+  .password-recovery h3 { @apply text-lg font-bold; }
+  .password-recovery .hint { @apply mt-0; }
+  .password-recovery .add-form { @apply mt-0 gap-3; }
   .sign-in-alternatives { @apply mt-3 flex flex-wrap gap-x-4; }
+}
+
+@media (max-width: 39.999rem) {
+  .account-panel {
+    inset: auto 0 0;
+    width: 100vw;
+    max-height: min(90dvh, 48rem);
+    border-radius: 1rem 1rem 0 0;
+    padding: .75rem .75rem max(.75rem, env(safe-area-inset-bottom));
+  }
+  .account-panel::backdrop { background: rgb(12 36 27 / 36%); }
+  .account-identity { top: -.75rem; }
+  .account-settings-dialog {
+    inset: auto 0 0;
+    margin: 0;
+    width: 100%;
+    max-height: min(92dvh, 52rem);
+    border-radius: 1rem 1rem 0 0;
+    padding: 1.25rem 1rem max(1rem, env(safe-area-inset-bottom));
+  }
+  .account-settings-header { top: -1.25rem; margin: -1.25rem -1rem .75rem; padding: 1rem 1rem .75rem; }
+}
+
+@media (max-height: 32rem) and (min-width: 40rem) {
+  .account-panel { inset: .5rem max(1rem, env(safe-area-inset-right)) .5rem auto; max-height: calc(100dvh - 1rem); }
+  .account-settings-dialog { max-height: calc(100dvh - 1rem); }
 }

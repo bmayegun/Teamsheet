@@ -12,6 +12,7 @@ export default function PasswordSignIn({ csrfToken, emailEnabled, onDone, onStag
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordVisible, setPasswordVisible] = useState(false)
   const [token, setToken] = useState(csrfToken)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -20,6 +21,7 @@ export default function PasswordSignIn({ csrfToken, emailEnabled, onDone, onStag
     setMode(next)
     setError('')
     setPassword('')
+    setPasswordVisible(false)
     onStage(next === 'recover' ? 'Reset your password' : next === 'register' ? 'Create your account' :
       next === 'code' ? 'Sign in with an email code' : next === 'set' ? 'Set your password' : 'Sign in to TeamSheet', next !== 'login')
   }
@@ -70,8 +72,22 @@ export default function PasswordSignIn({ csrfToken, emailEnabled, onDone, onStag
       <form className="add-form password-form" onSubmit={login}>
         <label>Email address<input type="email" autoComplete="username" required maxLength={254}
           value={email} onChange={e => setEmail(e.target.value)} /></label>
-        <label>Password<input type="password" autoComplete="current-password" required maxLength={128}
-          value={password} onChange={e => setPassword(e.target.value)} /></label>
+        <div className="password-input-field">
+          <label htmlFor="sign-in-password">Password</label>
+          <div className="password-input-row">
+            <input id="sign-in-password" type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" required maxLength={128}
+              value={password} onChange={e => setPassword(e.target.value)} />
+            <button type="button" className="password-visibility-toggle"
+              aria-label={passwordVisible ? 'Hide password' : 'Show password'} aria-pressed={passwordVisible}
+              onClick={() => setPasswordVisible(visible => !visible)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M2.5 12s3.2-6 9.5-6 9.5 6 9.5 6-3.2 6-9.5 6-9.5-6-9.5-6Z" />
+                <circle cx="12" cy="12" r="2.5" />
+                {passwordVisible && <path d="M4 4l16 16" />}
+              </svg>
+            </button>
+          </div>
+        </div>
         <button className="primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
       </form>
       {emailEnabled && <div className="sign-in-alternatives">

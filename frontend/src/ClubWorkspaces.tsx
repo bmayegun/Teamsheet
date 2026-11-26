@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import ClubMembers from './ClubMembers'
 
 interface Club { id: string; name: string; role: 'OWNER' | 'ORGANISER' }
-type Panel = 'rename' | 'create' | 'join' | 'invite' | 'members' | null
+type Panel = 'rename' | 'create' | 'join' | 'invite' | 'members' | 'delete' | null
 
 function pendingInvitation() {
   const fromUrl = new URLSearchParams(location.hash.slice(1)).get('club-invite')
@@ -37,6 +37,13 @@ export default function ClubWorkspaces({ csrfToken, clubId, busy, dirty, onSelec
   const invitationMembership = clubs.find(club => club.id === invitationPreview?.clubId)
   const editingLocked = busy || pending || loading
   const switchingLocked = editingLocked || dirty
+
+  function workspaceNameTaken(candidate: string, excludingClubId?: string, includePersonal = true) {
+    const normalized = candidate.trim().toLowerCase()
+    if (!normalized) return false
+    return (includePersonal && personalName.trim().toLowerCase() === normalized) ||
+      clubs.some(club => club.id !== excludingClubId && club.name.trim().toLowerCase() === normalized)
+  }
 
   async function loadWorkspaces(signal?: AbortSignal) {
     setLoading(true)
@@ -94,6 +101,7 @@ export default function ClubWorkspaces({ csrfToken, clubId, busy, dirty, onSelec
     })
     if (!response.ok) {
       if (response.status === 400) throw new Error(invalidMessage)
+      if (response.status === 409) throw new Error('A workspace with this name already exists. Choose a different name.')
       if (response.status === 401) throw new Error('Your session expired. Sign in again to continue.')
       if (response.status === 403) throw new Error('You do not have permission for this action. Sign in again or ask the club owner.')
       throw new Error('Could not complete this action. Try again.')
@@ -103,6 +111,10 @@ export default function ClubWorkspaces({ csrfToken, clubId, busy, dirty, onSelec
 
   async function renamePersonal() {
     if (editingLocked || !editedName.trim()) return
+    if (workspaceNameTaken(editedName, selectedClub?.id, !!selectedClub)) {
+      setError('A workspace with this name already exists. Choose a different name.')
+      return
+    }
     setPending(true)
     setError('')
     try {
@@ -159,6 +171,10 @@ export default function ClubWorkspaces({ csrfToken, clubId, busy, dirty, onSelec
 
   async function saveClub(joining: boolean) {
     if (switchingLocked || (joining ? !joinLink.trim() || !invitationPreview : !name.trim())) return
+    if (!joining && workspaceNameTaken(name)) {
+      setError('A workspace with this name already exists. Choose a different name.')
+      return
+    }
     setPending(true)
     setError('')
     setMessage('')
@@ -203,6 +219,37 @@ export default function ClubWorkspaces({ csrfToken, clubId, busy, dirty, onSelec
     }
   }
 
+  async function deleteWorkspace() {
+    if (switchingLocked || selectedClub?.role !== 'OWNER') return
+    setPending(true)
+    setError('')
+    setMessage('')
+    try {
+      const response = await fetch('/api/clubs/' + selectedClub.id, {
+        method: 'DELETE',
+        headers: { 'X-CSRF-TOKEN': csrfToken },
+      })
+      if (!response.ok) {
+        if (response.status === 401) throw new Error('Your session expired. Sign in again to continue.')
+        if (response.status === 403) throw new Error('Only the club owner can delete this workspace.')
+        throw new Error('Could not delete this workspace. Try again.')
+      }
+      const deletedName = selectedClub.name
+      setClubs(current => current.filter(club => club.id !== selectedClub.id))
+      setPanel(null)
+      if (options.current) options.current.open = false
+      if (!await onSelect(null)) {
+        throw new Error(`${deletedName} was deleted, but your personal workspace could not be opened. Reload the page to continue.`)
+      }
+      setMessage(`${deletedName} was deleted, including its shared roster, attendance, organisers, and invitations.`)
+      optionsSummary.current?.focus()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Could not delete this workspace. Try again.')
+    } finally {
+      setPending(false)
+    }
+  }
+
   async function copyInvite() {
     try {
       await navigator.clipboard.writeText(invite)
@@ -237,6 +284,8 @@ export default function ClubWorkspaces({ csrfToken, clubId, busy, dirty, onSelec
             aria-pressed={panel === 'invite'} onClick={() => openPanel('invite')}>Invite organiser</button>}
           {selectedClub && <button className="text-button" type="button" disabled={editingLocked}
             aria-pressed={panel === 'members'} onClick={() => openPanel('members')}>Organisers and access</button>}
+          {selectedClub?.role === 'OWNER' && <button className="text-button" type="button" disabled={switchingLocked}
+            aria-pressed={panel === 'delete'} onClick={() => openPanel('delete')}>Delete workspace</button>}
           <button className="text-button" type="button" disabled={switchingLocked || !loaded}
             aria-pressed={panel === 'create'} onClick={() => openPanel('create')}>Create club</button>
           <button className="text-button" type="button" disabled={switchingLocked || !loaded}
@@ -255,6 +304,16 @@ export default function ClubWorkspaces({ csrfToken, clubId, busy, dirty, onSelec
             <button type="button" className="text-button" disabled={pending} onClick={closePanel}>Cancel</button>
           </div>
         </form>}
+        {panel === 'delete' && selectedClub?.role === 'OWNER' && <div className="workspace-form" aria-labelledby="delete-workspace-heading">
+          <h3 id="delete-workspace-heading">Delete {selectedClub.name}?</h3>
+          <p className="hint">This permanently removes its shared player roster and attendance, all organisers’ access, and outstanding invitations. This can’t be undone.</p>
+          <div className="workspace-form-actions">
+            <button className="danger-button" type="button" disabled={switchingLocked} onClick={() => void deleteWorkspace()}>
+              {pending ? 'Deleting workspace…' : 'Delete workspace'}
+            </button>
+            <button className="text-button" type="button" disabled={pending} onClick={closePanel}>Keep workspace</button>
+          </div>
+        </div>}
         {panel === 'create' && <form className="workspace-form" onSubmit={event => { event.preventDefault(); void saveClub(false) }}>
           <p className="hint">Start a shared roster and invite other organisers to help.</p>
           <label>Club name<input autoFocus maxLength={100} required value={name} disabled={editingLocked}

@@ -10,20 +10,22 @@ export default function SkillRating({ playerName, value, onChange }: {
   const ratingId = useId()
 
   return (
-    <fieldset className="skill-rating">
-      <legend className="sr-only">Skill for {playerName}</legend>
-      {ratings.map((description, index) => {
-        const score = index + 1
-        const label = `${score} · ${description}`
-        return (
-          <label className="skill-segment" data-filled={score <= value} key={score} title={label}>
-            <input className="sr-only" type="radio" name={ratingId} value={score}
-              aria-label={label} checked={value === score}
-              onChange={() => onChange(score)} />
-            <span aria-hidden="true">{score}</span>
-          </label>
-        )
-      })}
-    </fieldset>
+    <div className="skill-rating-control">
+      <fieldset className="skill-rating">
+        <legend className="sr-only">Skill for {playerName}</legend>
+        {ratings.map((description, index) => {
+          const score = index + 1
+          const label = `${score} · ${description}`
+          return (
+            <label className="skill-segment" data-filled={score <= value} key={score}>
+              <input className="sr-only" type="radio" name={ratingId} value={score}
+                aria-label={label} checked={value === score}
+                onChange={() => onChange(score)} />
+              <span aria-hidden="true">{score}</span>
+            </label>
+          )
+        })}
+      </fieldset>
+    </div>
   )
 }

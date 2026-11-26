@@ -255,7 +255,7 @@ export default function App() {
                       onChange={event => { clearResult(); setTargets({ ...targets, [position]: Number(event.target.value) }) }} />
                   </label>)}
                 </div>
-                <p className="hint">Targets guide position coverage. Everyone plays, including extras.</p>
+                <p className="hint">Targets guide position coverage.</p>
               </fieldset>
             </details>
             <p className={targetMismatch ? 'error mt-2' : 'sr-only'} id="position-total" aria-live="polite">

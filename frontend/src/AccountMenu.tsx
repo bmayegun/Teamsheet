@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import PasswordEditor from './PasswordEditor'
 import EmailSignIn from './EmailSignIn'
 import type { Session } from './useSavedRoster'
@@ -12,6 +12,12 @@ export default function AccountMenu({ session }: { session: Session }) {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const editButton = useRef<HTMLButtonElement>(null)
+  const panel = useRef<HTMLElement>(null)
+  const passwordDialog = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    if (passwordEditing && !passwordDialog.current?.open) passwordDialog.current?.showModal()
+  }, [passwordEditing])
 
   function finishEditing() {
     setEditing(false)
@@ -40,10 +46,13 @@ export default function AccountMenu({ session }: { session: Session }) {
     <button className="account-trigger" type="button" popoverTarget="account-panel" aria-label={`Account options for ${name}`}>
       <span className="truncate">{name}</span><span aria-hidden="true">▾</span>
     </button>
-    <section id="account-panel" popover="auto" className="account-panel" aria-label="Account options">
+    <section ref={panel} id="account-panel" popover="auto" className="account-panel" aria-label="Account options">
       <header className="account-identity">
-        <h2>{name}</h2>
-        {email && <p>{email}</p>}
+        <div className="account-identity-copy">
+          <h2>{name}</h2>
+          {email && <p>{email}</p>}
+        </div>
+        <button className="account-close" type="button" onClick={() => panel.current?.hidePopover()}>Close</button>
       </header>
       {editing ? <form className="account-edit" onSubmit={save}>
         <label>Display name<input autoFocus maxLength={100} required value={draft} disabled={busy}
@@ -61,13 +70,12 @@ export default function AccountMenu({ session }: { session: Session }) {
           <p>Signed in with {session.signInMethod === 'email' ? 'an email code' : session.signInMethod === 'password' ? 'email and password' : 'Google'}.</p>
           {email && session.signInMethod !== 'email' && <p role="status">Email code sign-in is also enabled.</p>}
           {email && session.csrfToken && <>
-            {!passwordEditing ? <button className="text-button" type="button" onClick={() => setPasswordEditing(true)}>
+            <button className="text-button" type="button" onClick={() => {
+              panel.current?.hidePopover()
+              setPasswordEditing(true)
+            }}>
               {session.hasPassword ? 'Change password' : 'Set password'}
-            </button> : <>
-              <PasswordEditor csrfToken={session.csrfToken}
-                requireCurrent={!!session.hasPassword} onSaved={() => location.assign('/')} />
-              <button className="text-button" type="button" onClick={() => setPasswordEditing(false)}>Cancel</button>
-            </>}
+            </button>
           </>}
           {!email && session.canLinkEmail && session.csrfToken && <details>
             <summary className="text-button">Link email sign-in</summary>
@@ -78,5 +86,17 @@ export default function AccountMenu({ session }: { session: Session }) {
       <form action="/logout" method="post"><input type="hidden" name="_csrf" value={session.csrfToken ?? ''} />
         <button className="account-action" type="submit">Sign out</button></form>
     </section>
+    <dialog ref={passwordDialog} className="account-settings-dialog" aria-labelledby="password-dialog-title"
+      onClose={() => setPasswordEditing(false)}>
+      {passwordEditing && <>
+        <header className="account-settings-header">
+          <h2 id="password-dialog-title">{session.hasPassword ? 'Change password' : 'Set password'}</h2>
+          <button className="account-close" type="button" onClick={() => passwordDialog.current?.close()}>Close</button>
+        </header>
+        <p className="account-settings-intro">Manage the password you use to sign in to TeamSheet.</p>
+        <PasswordEditor csrfToken={session.csrfToken ?? ''}
+          requireCurrent={!!session.hasPassword} onSaved={() => location.assign('/')} />
+      </>}
+    </dialog>
   </>
 }
