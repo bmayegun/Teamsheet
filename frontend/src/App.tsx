@@ -166,7 +166,8 @@ export default function App() {
         {roster.session.csrfToken && <>
           {!hideSignInMethods && <div className="sign-in-divider">or use your email</div>}
           <PasswordSignIn csrfToken={roster.session.csrfToken} emailEnabled={!!roster.session.emailSignInEnabled}
-            onStage={(title, hide) => { setSignInTitle(title); setHideSignInMethods(hide) }} onDone={() => { rememberGuestRoster(); location.assign('/') }} />
+            onStage={(title, hide) => { setSignInTitle(title); setHideSignInMethods(hide) }}
+            onGoogleSignIn={rememberGuestRoster} onDone={() => { rememberGuestRoster(); location.assign('/') }} />
         </>}
       </dialog>}
       {roster.draft && roster.session?.csrfToken && <ClubWorkspaces

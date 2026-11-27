@@ -3,11 +3,12 @@ import EmailSignIn from './EmailSignIn'
 import PasswordEditor from './PasswordEditor'
 
 type Mode = 'login' | 'code' | 'register' | 'recover' | 'set'
-export default function PasswordSignIn({ csrfToken, emailEnabled, onDone, onStage }: {
+export default function PasswordSignIn({ csrfToken, emailEnabled, onDone, onStage, onGoogleSignIn }: {
   csrfToken: string
   emailEnabled: boolean
   onDone: () => void
   onStage: (title: string, hideMethods: boolean) => void
+  onGoogleSignIn: () => void
 }) {
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
@@ -90,10 +91,12 @@ export default function PasswordSignIn({ csrfToken, emailEnabled, onDone, onStag
         </div>
         <button className="primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
       </form>
-      {emailEnabled && <div className="sign-in-alternatives">
+      {emailEnabled ? <div className="sign-in-alternatives">
         <button type="button" className="text-button" onClick={() => changeMode('recover')}>Forgot password?</button>
         <button type="button" className="text-button" onClick={() => changeMode('register')}>Create an account</button>
         <button type="button" className="text-button" onClick={() => changeMode('code')}>Use an email code instead</button>
+      </div> : <div className="sign-in-alternatives">
+        <a className="text-button" href="/oauth2/authorization/google" onClick={onGoogleSignIn}>Create an account with Google</a>
       </div>}
     </> : <>
       {mode === 'recover' && <p className="hint">Verify your email with a code, then choose a new password.</p>}

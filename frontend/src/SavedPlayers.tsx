@@ -6,6 +6,7 @@ import type { Player } from './types'
 import type { RosterDraft } from './useSavedRoster'
 
 const nameKey = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase()
+const playerNameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
 const newPlayer = (name: string, skillRating = 3): Player =>
   ({ id: crypto.randomUUID(), name, skillRating, positions: [] })
 
@@ -39,6 +40,7 @@ export default function SavedPlayers({ draft, onChange, busy, existingPlayers, o
   const [excludedPreviewIds, setExcludedPreviewIds] = useState<Set<string>>(() => new Set())
   const selectedPreview = preview?.filter(player => !excludedPreviewIds.has(player.id)) ?? []
   const allPreviewSelected = !!preview?.length && selectedPreview.length === preview.length
+  const sortedSavedPlayers = [...draft.players].sort((a, b) => playerNameCollator.compare(a.name, b.name))
   const [choices, setChoices] = useState<Record<number, string>>({})
   const matchNames = (matchPasteOpen ? matchPaste : '').split(/\r?\n/).map(line => line.trim().replace(/^\d+[.)]\s+/, '')).filter(Boolean)
   const playersByName = new Map<string, Player[]>()
@@ -125,7 +127,7 @@ export default function SavedPlayers({ draft, onChange, busy, existingPlayers, o
     const player = playersById.get(choice)!
     if (selectedIds.has(choice)) matchError = `${player.name} is selected more than once. Choose another player or skip a row.`
     selectedIds.add(choice)
-    return { ...row, choice, result: `Select ${player.name}` }
+    return { ...row, choice, result: `Matched to ${player.name}` }
   })
   const removedPlayers = draft.players.filter(player => attending.has(player.id) && !selectedIds.has(player.id))
   const nextCount = selectedIds.size + draft.guests.length + newGuestNames.length
@@ -329,7 +331,7 @@ export default function SavedPlayers({ draft, onChange, busy, existingPlayers, o
           {draft.players.length > 0 && <>
             <p className="hint">Open a player to edit their rating and positions. Select positions in preference order.</p>
             <ul className="player-list">
-              {draft.players.map(player => <PlayerEditor key={player.id} player={player} collapsed
+              {sortedSavedPlayers.map(player => <PlayerEditor key={player.id} player={player} collapsed
                 onChange={updated => onChange({ ...draft, players: draft.players.map(item => item.id === updated.id ? updated : item) })}
                 onRemove={() => onChange({ ...draft, players: draft.players.filter(item => item.id !== player.id),
                   attendingIds: draft.attendingIds.filter(id => id !== player.id) })} />)}
