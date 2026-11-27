@@ -66,7 +66,7 @@ export default function SavedPlayers({ draft, onChange, busy, existingPlayers, o
       .map((player, index) => [player.id, index + 1] as const),
   )
   const playingCount = matchNumbers.size
-  const visiblePlayers = draft.players.filter(player =>
+  const visiblePlayers = sortedSavedPlayers.filter(player =>
     (!selectedOnly || attending.has(player.id)) && nameKey(player.name).includes(nameKey(search)),
   )
   const activeUpdate = matchUpdate?.next === draft ? matchUpdate : undefined
